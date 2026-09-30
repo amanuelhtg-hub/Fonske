@@ -29,24 +29,29 @@ function collect(value, out) {
 // Numbers the output may contain: those in the facts, the evidence lines and the reviewed template text.
 const allowedNumbers = (facts, evidence, template) => collect([facts, evidence, template && [template.title, template.body, template.cta]], new Set());
 
-// Returns { title, body, cta } or null.
-function validateOutput(out, { facts, evidence, template }) {
-  if (!out || typeof out !== 'object' || Array.isArray(out)) return null;
+// Returns { ok: true, out } or { ok: false, reason }.
+function checkOutput(out, { facts, evidence, template }) {
+  const no = (reason) => ({ ok: false, reason });
+  if (!out || typeof out !== 'object' || Array.isArray(out)) return no('not a JSON object');
   const res = {};
   for (const k of Object.keys(LIMITS)) {
     const v = out[k];
-    if (typeof v !== 'string') return null;
+    if (typeof v !== 'string') return no(`${k} missing or not a string`);
     const t = v.trim();
-    if (!t || t.length > LIMITS[k] || !ALLOWED_CHARS.test(t)) return null;
-    if (FORBIDDEN.some((re) => re.test(t))) return null;
+    if (!t) return no(`${k} empty`);
+    if (t.length > LIMITS[k]) return no(`${k} longer than ${LIMITS[k]}`);
+    if (!ALLOWED_CHARS.test(t)) return no(`${k} has characters outside plain English`);
+    if (FORBIDDEN.some((re) => re.test(t))) return no(`${k} has a forbidden phrase`);
     res[k] = t;
   }
-  if (res.body.length < 20) return null;
+  if (res.body.length < 20) return no('body too short');
   const words = res.body.toLowerCase().match(/[a-z']+/g) || [];
-  if (words.filter((w) => STOPWORDS.has(w)).length < 3) return null; // not recognisably English
+  if (words.filter((w) => STOPWORDS.has(w)).length < 3) return no('not recognisably English');
   const allowed = allowedNumbers(facts, evidence, template);
-  for (const k of Object.keys(res)) for (const n of numbersIn(res[k])) if (!allowed.has(n)) return null;
-  return res;
+  for (const k of Object.keys(res)) for (const n of numbersIn(res[k])) if (!allowed.has(n)) return no(`number ${n} not in the facts`);
+  return { ok: true, out: res };
 }
+// Returns { title, body, cta } or null.
+const validateOutput = (out, ctx) => { const r = checkOutput(out, ctx); return r.ok ? r.out : null; };
 
-module.exports = { validateOutput, LIMITS, allowedNumbers };
+module.exports = { validateOutput, checkOutput, LIMITS, allowedNumbers };

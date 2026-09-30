@@ -4,7 +4,7 @@
 // OFF unless KATE_AI=on + GOOGLE_CLOUD_PROJECT + GOOGLE_CLOUD_LOCATION + KATE_AI_MODEL are set.
 const crypto = require('node:crypto');
 const { setComposer, templateComposer } = require('../composer');
-const { validateOutput } = require('./validate');
+const { checkOutput, validateOutput } = require('./validate');
 const vertex = require('./vertex');
 
 const PROMPT_VERSION = 'v1';
@@ -27,7 +27,7 @@ function loadConfig(env = process.env) {
 
 const keyOf = (actionId, facts) => crypto.createHash('sha256').update(`${PROMPT_VERSION}\n${actionId}\n${JSON.stringify(facts || {})}`).digest('hex');
 
-function createAiComposer(cfg, { fetchFn = fetch, getToken, now = Date.now, log = console.warn } = {}) {
+function createAiComposer(cfg, { fetchFn = fetch, getToken, now = Date.now, log = console.warn, info = console.log } = {}) {
   const tokenFn = getToken || vertex.createTokenProvider({ fetchFn });
   const cache = new Map(); // key -> { out|null, exp }; Map order = LRU order
   const inflight = new Map(); // key -> Promise
@@ -48,16 +48,19 @@ function createAiComposer(cfg, { fetchFn = fetch, getToken, now = Date.now, log 
   const warnOnce = (msg) => { if (!warned) { warned = true; log(`[kate-ai] ${msg}; falling back to templates`); } };
 
   async function generateOne(key, d) {
-    const prompt = vertex.buildPrompt({ actionId: d.action.id, opportunityId: d.moment, facts: d.facts, evidence: d.why });
+    const template = d.action.en(d.facts || {});
+    const prompt = vertex.buildPrompt({ actionId: d.action.id, opportunityId: d.moment, facts: d.facts, evidence: d.why, draft: template });
     if (!prompt) return put(key, null, 60000);
     calls++; stats.calls++;
+    const t0 = now();
     try {
       const raw = await vertex.generate(cfg, prompt, { fetchFn, getToken: tokenFn, timeoutMs: cfg.requestTimeoutMs });
-      const template = d.action.en(d.facts || {});
-      const out = validateOutput(raw, { facts: d.facts, evidence: d.why, template });
-      if (out) { failures = 0; put(key, out, cfg.ttlMs); } else { stats.rejected++; put(key, null, 5 * 60000); }
+      const r = checkOutput(raw, { facts: d.facts, evidence: d.why, template });
+      if (r.ok) { failures = 0; put(key, r.out, cfg.ttlMs); info(`[kate-ai] ${d.action.id}: Gemini wording accepted (${now() - t0} ms)`); }
+      else { stats.rejected++; put(key, null, 5 * 60000); info(`[kate-ai] ${d.action.id}: Gemini wording rejected (${r.reason}), template used`); }
     } catch (e) {
       stats.errors++;
+      info(`[kate-ai] ${d.action.id}: Gemini call failed (${e.message}), template used`);
       warnOnce(`Vertex call failed (${e.message})`);
       put(key, null, 60000); // negative cache: do not hammer a broken backend
       if (++failures >= 5) { pausedUntil = now() + 30000; failures = 0; } // circuit breaker
@@ -74,7 +77,8 @@ function createAiComposer(cfg, { fetchFn = fetch, getToken, now = Date.now, log 
       const e = fresh(keyOf(action.id, ctx.facts));
       if (!e || !e.out) return tpl;
       stats.hits++;
-      return validateOutput(e.out, { facts: ctx.facts, evidence: ctx.evidence, template: tpl }) || tpl;
+      const ok = validateOutput(e.out, { facts: ctx.facts, evidence: ctx.evidence, template: tpl });
+      return ok ? { ...ok, aiWorded: true } : tpl;
     },
     // Fills the cache for the given decisions; never throws; resolves within prepareTimeoutMs.
     async prepare(decisions) {

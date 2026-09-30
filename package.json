@@ -8,6 +8,7 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test",
-    "bench": "node src/batch.js 2300000"
+    "bench": "node src/batch.js 2300000",
+    "ai:check": "node --env-file-if-exists=.env src/ai/check.js"
   }
 }

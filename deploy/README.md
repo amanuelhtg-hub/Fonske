@@ -31,7 +31,7 @@ curl -s -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" -H 
 gcloud run deploy kate --source . --region $REGION --allow-unauthenticated \
   --max-instances=1 --min-instances=1 --timeout=3600 \
   --set-secrets=SESSION_SECRET=kate-session-secret:latest,DEMO_PASSCODE=kate-demo-passcode:latest \
-  --set-env-vars=SECURE_COOKIES=1,KATE_AI=on,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=$REGION,KATE_AI_MODEL=$KATE_AI_MODEL
+  --set-env-vars=SECURE_COOKIES=1,TRUST_PROXY=1,KATE_AI=on,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=$REGION,KATE_AI_MODEL=$KATE_AI_MODEL
 ```
 
 Leave out `KATE_AI=on` (or set `KATE_AI=off`) for template wording only. Kill switch without a rebuild:
@@ -47,6 +47,6 @@ Scaling out would need a shared store (e.g. Firestore/Redis) and pub/sub for the
 
 ## Notes
 - `PORT` is set by Cloud Run; the Dockerfile sets `HOST=0.0.0.0`. Health check: `GET /api/healthz`.
-- Behind Cloud Run the login throttle sees the proxy address (`remoteAddress`), so its 10 attempts/minute are shared by all visitors. Fine for a demo; for real use read `X-Forwarded-For`.
+- `TRUST_PROXY=1` makes the login throttle use the client address from `X-Forwarded-For` (the last entry, which the Google front end appends; earlier entries are client-supplied). Without it every visitor shares the proxy address.
 - Local container test: `docker build -t kate . && docker run --rm -p 8080:8080 -e DEMO_PASSCODE=demo kate`.
 - The hackathon project's credentials expire after one week.

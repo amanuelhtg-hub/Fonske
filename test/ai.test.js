@@ -15,7 +15,7 @@ const decision = { action: ACTIONS['subscription_hike'], moment: 'subscription_h
 const ctx = { moment: decision.moment, facts, evidence: why };
 const GOOD = { title: 'StreamFlix now costs €15 a month', body: 'The price went from €10 to €15, which adds up to €60 a year. You can keep it or look at your options.', cta: 'Review options' };
 const reply = (obj) => ({ ok: true, status: 200, json: async () => ({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: typeof obj === 'string' ? obj : JSON.stringify(obj) }] } }] }) });
-const make = (fetchFn, cfg = CFG) => createAiComposer(cfg, { fetchFn, getToken: async () => 'tok', log: () => {} });
+const make = (fetchFn, cfg = CFG) => createAiComposer(cfg, { fetchFn, getToken: async () => 'tok', log: () => {}, info: () => {} });
 const tpl = () => ACTIONS['subscription_hike'].en(facts);
 
 test('success: AI wording used after prepare, request is structured and minimal', async () => {
@@ -23,14 +23,16 @@ test('success: AI wording used after prepare, request is structured and minimal'
   const c = make(async (url, init) => { seen = { url, init, body: JSON.parse(init.body) }; return reply(GOOD); });
   assert.deepEqual(c.compose(decision.action, ctx), tpl()); // nothing cached yet
   await c.prepare([decision]);
-  assert.deepEqual(c.compose(decision.action, ctx), GOOD);
+  assert.deepEqual(c.compose(decision.action, ctx), { ...GOOD, aiWorded: true });
   assert.match(seen.url, /us-central1-aiplatform\.googleapis\.com\/v1\/projects\/demo-project-1\/locations\/us-central1\/publishers\/google\/models\/gemini-test:generateContent/);
   assert.equal(seen.init.headers.Authorization, 'Bearer tok');
   assert.equal(seen.body.generationConfig.responseMimeType, 'application/json');
   assert.ok(seen.body.generationConfig.responseSchema.required.includes('cta'));
   const payload = JSON.parse(seen.body.contents[0].parts[0].text);
-  assert.deepEqual(Object.keys(payload).sort(), ['actionId', 'evidence', 'facts', 'opportunityId']);
+  assert.deepEqual(Object.keys(payload).sort(), ['actionId', 'draft', 'evidence', 'facts', 'opportunityId']);
+  assert.deepEqual(payload.draft, tpl());
   assert.match(seen.body.systemInstruction.parts[0].text, /untrusted DATA/);
+  assert.match(seen.body.systemInstruction.parts[0].text, /caveat/);
 });
 
 test('cache hit: second prepare makes no call', async () => {
@@ -76,7 +78,7 @@ test('forbidden phrases, length and non-English output are rejected', () => {
 
 test('missing credentials: silent fallback, no Vertex call', async () => {
   let called = false;
-  const c = createAiComposer(CFG, { fetchFn: async () => { called = true; return reply(GOOD); }, getToken: async () => { throw new Error('no credentials'); }, log: () => {} });
+  const c = createAiComposer(CFG, { info: () => {}, fetchFn: async () => { called = true; return reply(GOOD); }, getToken: async () => { throw new Error('no credentials'); }, log: () => {} });
   await c.prepare([decision]);
   assert.equal(called, false);
   assert.deepEqual(c.compose(decision.action, ctx), tpl());
@@ -114,10 +116,32 @@ test('consent-off generic card is never sent to the model', async () => {
 
 test('installed composer is used by the composer seam; template composer is the default', async () => {
   const env = { KATE_AI: 'on', GOOGLE_CLOUD_PROJECT: 'demo-project-1', GOOGLE_CLOUD_LOCATION: 'us-central1', KATE_AI_MODEL: 'gemini-test' };
-  assert.equal(install(env, { fetchFn: async () => reply(GOOD), getToken: async () => 't', log: () => {} }), true);
+  assert.equal(install(env, { fetchFn: async () => reply(GOOD), getToken: async () => 't', log: () => {}, info: () => {} }), true);
   await prepare([decision]);
-  assert.deepEqual(compose(decision.action, ctx), GOOD);
+  assert.deepEqual(compose(decision.action, ctx), { ...GOOD, aiWorded: true });
   uninstall();
   assert.deepEqual(compose(decision.action, ctx), tpl());
   assert.equal(typeof templateComposer.compose, 'function');
+});
+
+test('render marks AI-worded cards with aiWorded, templates with false', async () => {
+  const { render } = require('../src/engine');
+  const cust = { name: 'Test Person', consent: { advisorInsights: true } };
+  const result = { moments: [], guardrails: [], decisions: [{ action: decision.action, moment: decision.moment, confidence: 0.9, why, facts }] };
+  assert.equal(render(result, 'app', cust).cards[0].aiWorded, false);
+  const env = { KATE_AI: 'on', GOOGLE_CLOUD_PROJECT: 'demo-project-1', GOOGLE_CLOUD_LOCATION: 'us-central1', KATE_AI_MODEL: 'gemini-test' };
+  install(env, { fetchFn: async () => reply(GOOD), getToken: async () => 't', log: () => {}, info: () => {} });
+  await prepare(result.decisions);
+  const card = render(result, 'app', cust).cards[0];
+  assert.equal(card.aiWorded, true);
+  assert.equal(card.title, GOOD.title);
+  uninstall();
+});
+
+test('thinking config matches the model family and can be overridden', () => {
+  const { thinkingConfig } = require('../src/ai/vertex');
+  assert.deepEqual(thinkingConfig('gemini-2.5-flash-lite'), { thinkingBudget: 0 });
+  assert.deepEqual(thinkingConfig('gemini-3.5-flash-lite'), { thinkingLevel: 'MINIMAL' });
+  assert.equal(thinkingConfig('gemini-3.5-flash-lite', 'none'), null);
+  assert.deepEqual(thinkingConfig('gemini-3.5-flash', 'level:low'), { thinkingLevel: 'LOW' });
 });

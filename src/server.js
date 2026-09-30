@@ -108,6 +108,16 @@ function readJson(req) {
   });
 }
 
+// Client address for the throttle. Behind Cloud Run (TRUST_PROXY=1) use the address the Google front end appended
+// to X-Forwarded-For, i.e. the LAST entry: earlier entries are client-supplied and could be spoofed to dodge the limit.
+const clientIp = (req) => {
+  if (process.env.TRUST_PROXY === '1') {
+    const parts = String(req.headers['x-forwarded-for'] || '').split(',').map((x) => x.trim()).filter(Boolean);
+    if (parts.length) return parts[parts.length - 1];
+  }
+  return req.socket.remoteAddress;
+};
+
 // crude per-IP login throttle: 10 attempts / minute
 const attempts = new Map();
 function throttled(ip) {
@@ -149,7 +159,7 @@ async function handle(req, res) {
       });
     }
     if (p === '/api/login' && req.method === 'POST') {
-      if (throttled(req.socket.remoteAddress)) return send(res, 429, { error: 'too many attempts' });
+      if (throttled(clientIp(req))) return send(res, 429, { error: 'too many attempts' });
       const b = await readJson(req);
       const role = customers.has(b.userId) ? 'customer' : advisors.has(b.userId) ? 'advisor' : null;
       if (!role || !safeEq(b.passcode ?? '', PASSCODE)) return send(res, 401, { error: 'invalid credentials' });
