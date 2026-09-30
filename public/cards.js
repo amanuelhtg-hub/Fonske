@@ -200,11 +200,13 @@
     function build() {
       const icon = categoryIcon(c.moment || '');
       const head = el('div', { className: 'k-head' }, kateIcon(32), el('span', { className: 'k-brand', textContent: 'Kate' }), el('span', { className: 'k-time', textContent: '· now' }),
+        ...(c.aiWorded ? [el('span', { className: 'k-ai', textContent: 'AI wording', attrs: { title: 'The wording was written by Gemini. The decision and every number come from rules.' } })] : []),
         el('span', { className: 'k-spacer' }),
         ...(payload.amount ? [el('span', { className: 'k-amount', textContent: payload.amount })] : []),
         payload.merchant ? logo(payload.merchant, 'sm') : categoryBadge(icon, 'sm'));
       const why = el('details', { className: 'k-why' }, el('summary', { textContent: 'Why am I seeing this?' }),
-        c.why && c.why.length ? el('ul', {}, ...c.why.map((w) => el('li', { textContent: w }))) : el('p', { textContent: 'This is a general message. Nothing about you was analysed.' }));
+        c.why && c.why.length ? el('ul', {}, ...c.why.map((w) => el('li', { textContent: w }))) : el('p', { textContent: 'This is a general message. Nothing about you was analysed.' }),
+        ...(c.aiWorded ? [el('p', { className: 'k-note', textContent: 'The wording of this card was written by AI (Gemini). What Kate suggests, and every number in it, comes from fixed rules and your own data.' })] : []));
       primaryBtn = el('button', { className: 'btn btn-primary', textContent: payload.primary_cta, onclick: onPrimary });
       const secondary = el('button', { className: 'btn-text', textContent: payload.secondary_cta, onclick: onSecondary });
       // Brief contextual description: long server text is clamped to 4 lines with a "Read more" toggle.

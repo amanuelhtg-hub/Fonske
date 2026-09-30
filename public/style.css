@@ -109,6 +109,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .k-brand { font-weight: 600; font-size: 14px; }
 .k-time { font-size: 13px; color: var(--muted); }
 .k-spacer { flex: 1; }
+.k-ai { font-size: 11px; font-weight: 500; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
 .k-amount { font-size: 13px; color: var(--muted); font-weight: 500; }
 .k-title { font-size: 18px; font-weight: 600; line-height: 1.35; margin-bottom: 8px; }
 .k-desc { font-size: 15px; font-weight: 400; line-height: 1.5; margin-bottom: 20px; }
@@ -187,7 +188,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   .k-card.k-enter { transform: none; }
 }
 @media (max-width: 480px) { .screen { padding-left: 12px; padding-right: 12px; } .brand-sub { display: none; } .topbar { padding: 10px 12px; } }
-@media (max-width: 360px) { .presenter-tag { display: none; } .brand-logo { height: 26px; } }
+@media (max-width: 360px) { .k-time { display: none; } .k-head { gap: 6px; } .presenter-tag { display: none; } .brand-logo { height: 26px; } }
 
 /* utilities (inline styles are blocked by the CSP) */
 .mt-0 { margin-top: 0; } .mt-8 { margin-top: 8px; } .mt-16 { margin-top: 16px; } .mt-48 { margin-top: 48px; } .small { font-size: 13px; }

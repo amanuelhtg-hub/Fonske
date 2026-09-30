@@ -36,3 +36,6 @@ Vanilla JS, no build step, strict CSP (no inline scripts or styles, no `innerHTM
 - Long card descriptions are clamped to 4 lines with "Read more", to keep cards brief.
 - Accessibility: touch targets are at least 44px, keyboard focus ring is visible, `prefers-reduced-motion` is respected, and the canvas does not change in dark mode. Known trade-off: the guide's own colours give 4.0:1 for muted text and 2.7:1 for white on #00A6EB, below WCAG AA for small text.
 - Automated checks used during development: computed-style audit against every number in the style guide, plus a sweep of login/home/card/drawer/advisor at 320, 360, 390, 768, 1280 and 1440px for fonts, palette, use of blue, touch targets, overflow and image loading.
+
+### AI wording layer (Google Cloud)
+Off unless configured (`KATE_AI=on` plus project, location and model). Gemini on Vertex AI only rewords a card's text; what Kate suggests, every number and every guardrail come from code. Output is validated (numbers must come from the facts, no promises or advice) and falls back to the template on any failure. Cards carry `aiWorded`, and the UI shows an "AI wording" label when it is true. Details: `docs/GOOGLE_CLOUD.md`, deploy steps: `deploy/README.md`, live check: `npm run ai:check`.
