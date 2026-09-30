@@ -84,9 +84,57 @@
       }), ' ', btn('Use default', async () => { await api('/api/me/preferences', 'PUT', { reserve: null }); refresh(); }, 'ghost'),
       el('p', { textContent: 'Is this money needed for something coming up?' }),
       btn('Yes, soon', route('Okay, we keep it accessible. Nothing moves.')), ' ',
-      btn('I am building a reserve', route(`Suggestion: an accessible ${f.product.name}. Nothing moves until you approve.`)), ' ',
+      btn('I am building a reserve', route(`Suggestion: an accessible ${(f.savingsProduct || f.product).name}. Nothing moves until you approve.`)), ' ',
       btn('No, long-term', route('Next step: a guided investment profile (objectives, risk comfort, finances, horizon). Kate gives no investment advice.')),
       result, close(panel));
+  }
+
+  // ---- subscriptions: a new recurring charge was found: is it yours? ---------------------------
+  function newSubscription(card, panel) {
+    const f = card.facts;
+    panel.append(el('p', { textContent: `${f.m} has been charged about ${money(f.amount)} three months in a row. Is this your subscription?` }),
+      btn('Yes, it is mine', async () => {
+        await api('/api/me/dismiss', 'POST', { actionId: card.actionId });
+        notify(`Noted: ${f.m} is your subscription. Kate will tell you if its price changes.`);
+        refresh();
+      }), ' ',
+      btn('I do not recognise it', () => { panel.replaceChildren(); cancel(card, panel); }, 'ghost'), ' ', close(panel));
+  }
+
+  // ---- subscriptions: charged after the customer marked it cancelled -----------------------------
+  function followUp(card, panel) {
+    const f = card.facts;
+    const text = `I marked my subscription with ${f.m} as cancelled ${f.cancelledDaysAgo} days ago, but it was charged again ${f.daysAgo} days ago. Please confirm in writing that it has been cancelled.`;
+    panel.append(el('p', { className: 'sim', textContent: 'SIMULATION: nothing is sent until you approve, and even then only in this demo.' }),
+      row('Subscription', f.m), row('Charged after cancelling', money(f.amount)), row('You marked it cancelled', `${f.cancelledDaysAgo} days ago`),
+      row('Charged again', `${f.daysAgo} days ago`), el('pre', { textContent: text }),
+      el('p', { className: 'muted', textContent: 'Blocking future payments at the bank does not end the contract.' }),
+      btn('Approve message (simulated)', () => { notify(`Message to ${f.m} approved (simulation). Nothing was actually sent.`); panel.remove(); }), ' ', close(panel));
+  }
+
+  // ---- travel: is the current travel cover enough for a temporary stay? ---------------------------
+  function coverCheck(card, panel) {
+    const f = card.facts;
+    panel.append(el('p', { className: 'sim', textContent: 'SIMULATION' }),
+      row('Planned stay', `${f.months ? `${f.months} months` : 'duration not given'}${f.country ? ` in ${f.country}` : ''}`),
+      el('p', { textContent: 'Standard trip cover often has a maximum duration. Check:' }),
+      el('ul', {}, ...['How many days your current cover applies in one trip', 'Whether medical and repatriation cover still apply for the whole stay', 'Whether you need a longer-term spending plan for the period abroad']
+        .map((t) => el('li', { textContent: t }))),
+      btn('Request a cover review (simulated)', () => { notify('Cover review requested (simulation). Nothing was actually sent.'); panel.remove(); }), ' ', close(panel));
+  }
+
+  // ---- household: a recurring bill went up ---------------------------------------------------------
+  function billIncrease(card, panel) {
+    const f = card.facts;
+    const result = el('p', { className: 'muted' });
+    const answer = (t) => () => { result.textContent = t; };
+    panel.append(row(f.m, `${money(f.from)} to ${money(f.to)} per month`),
+      el('p', { textContent: f.energy
+        ? 'Energy bills can change with usage, advance payments or the annual settlement. A higher amount does not necessarily mean a worse tariff.'
+        : 'Did a promotional discount end? A jump can mean that, but transactions alone cannot show the reason.' }),
+      btn('A discount ended', answer('Thanks. Kate will use the new amount as your usual price.')), ' ',
+      btn('I do not know', answer('Okay. You could share your latest bill so you can review the contract yourself (simulated).')), ' ',
+      btn('Dismiss', () => panel.remove(), 'ghost'), result);
   }
 
   function info(card, panel) {
@@ -100,9 +148,12 @@
     'travel-cover': (c, p) => (c.facts.confirmed ? info(c, p) : situation(c, p)),
     'moving-abroad': (c, p) => (c.facts.confirmed ? info(c, p) : situation(c, p)),
     'travel-disruption': (c, p) => (c.facts.booking ? prefilled(c, p) : info(c, p)),
-    'review-subscriptions': SUBS, 'subscription-hike': SUBS, 'subscription-cancelled-charge': SUBS, 'subscription-annual': SUBS,
+    'review-subscriptions': SUBS, 'subscription-hike': SUBS, 'subscription-cancelled-charge': followUp, 'subscription-annual': SUBS,
     'household-bill-shortfall': (c, p) => (c.facts.transfer ? transfer(c, p) : info(c, p)),
     'excess-cash': savings,
+    'subscription-new': newSubscription,
+    'temporary-stay': coverCheck,
+    'household-bill-increase': billIncrease,
   };
 
   window.KateActions = {
