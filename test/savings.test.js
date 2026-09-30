@@ -77,13 +77,60 @@ test('autopilot: prepares a one-tap transfer below the surplus, to savings by de
   assert.ok(card.body.includes('€700') && card.body.includes('one-tap'));
 });
 
-test('autopilot: investment destination only with an existing investment profile', () => {
-  const c = cust('sav1'); c.prefs.riskComfort = 'medium';
-  assert.strictEqual(excess(c).facts.savingsTransfer.toProductId, 'kbc-savings');
-  c.prefs.investmentProfile = true;
-  const f = excess(c).facts;
+test('autopilot: investment destination only with a profile AND a fully built reserve', () => {
+  const c = cust('sav1'); c.prefs.riskComfort = 'medium'; c.prefs.investmentProfile = true;
+  let f = excess(c).facts;
+  assert.strictEqual(f.tier, 'safety_buffer'); // reserve not yet in savings: savings first, even with a profile
+  assert.strictEqual(f.bufferGap, 1500);
+  assert.strictEqual(f.savingsTransfer.toProductId, 'kbc-savings');
+  assert.strictEqual(f.microInvest, null);
+  c.savings = 1500; // reserve fully held in savings
+  f = excess(c).facts;
+  assert.strictEqual(f.tier, 'wealth');
   assert.strictEqual(f.savingsTransfer.toProductId, 'kbc-balanced-fund');
-  assert.strictEqual(f.hasInvestmentProfile, true);
+  assert.strictEqual(f.microInvest.minMonthly, 25);
+  assert.strictEqual(f.microInvest.needsProfile, false);
+  delete c.prefs.investmentProfile; // reserve met but no profile: still savings, investing is a handoff
+  f = excess(c).facts;
+  assert.strictEqual(f.savingsTransfer.toProductId, 'kbc-savings');
+  assert.strictEqual(f.microInvest.needsProfile, true);
+});
+
+test('idle cash: opportunity cost is a labelled estimate, not a promise', () => {
+  const m = excess(cust('sav1'));
+  assert.strictEqual(m.facts.idleCost, 11); // 700 x 1.5%
+  assert.ok(m.evidence.some((e) => e.includes('illustrative') && e.includes('differ')));
+  const c = cust('sav1'); const body = render(decide(c), 'app', c).cards[0].body;
+  assert.ok(body.includes('illustrative') && !/guarantee|will earn|risk-free/i.test(body));
+});
+
+test('clawback: unexpected debit below the reserve offers a 1-tap transfer back', () => {
+  const m = decide(cust('sav3')).moments.find((x) => x.id === 'buffer_clawback');
+  assert.ok(m);
+  assert.strictEqual(m.facts.transfer.amount, 400); // reserve 1500 - balance 1100
+  assert.strictEqual(m.facts.transfer.from, 'savings');
+  assert.ok(m.evidence[0].includes('€450'));
+  assert.strictEqual(excess(cust('sav3')), undefined);
+});
+
+test('clawback: stays quiet without savings, without a breach, or without an unexpected debit', () => {
+  const has = (c) => decide(c).moments.some((x) => x.id === 'buffer_clawback');
+  const a = cust('sav3'); a.savings = 0; a.events = a.events.filter((e) => e.cat !== 'savings_transfer');
+  assert.strictEqual(has(a), false);
+  const b = cust('sav3'); b.balance = 1600;
+  assert.strictEqual(has(b), false);
+  const d = cust('sav3'); d.events = d.events.filter((e) => e.cat !== 'disruption');
+  assert.strictEqual(has(d), false);
+  const small = cust('sav3'); small.balance = 1450; small.savings = 50; // savings below the minimum
+  assert.strictEqual(has(small), false);
+});
+
+test('clawback: is care, so it survives overdraft, and capped at savings', () => {
+  const c = cust('sav3'); c.balance = 1100; c.savings = 250; c.events.push({ d: 2, cat: 'overdraft_fee', amt: -12 });
+  const r = decide(c);
+  const d = r.decisions.find((x) => x.moment === 'buffer_clawback');
+  assert.ok(d && d.action.kind === 'care');
+  assert.strictEqual(d.facts.transfer.amount, 250);
 });
 
 test('autopilot: amount shrinks when spending rises and stops when income goes quiet', () => {
