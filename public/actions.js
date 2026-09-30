@@ -17,13 +17,14 @@
       const ev = { cat: 'travel_confirm', m: kind, amt };
       if (/^[A-Z]{2}$/.test(card.facts.country || '')) ev.c = card.facts.country;
       await api('/api/me/events', 'POST', ev);
-      notify(`Thanks, Kate now treats this as: ${{ holiday: 'a holiday', stay: 'a temporary stay', move: 'a move abroad' }[kind]}.`);
+      notify(`Thanks, Kate now treats this as: ${{ holiday: 'a holiday', business: 'a work trip', stay: 'a temporary stay', move: 'a move abroad' }[kind]}.`);
       refresh();
     };
     const go = btn('Confirm temporary stay', () => send('stay', Number(months.value)));
     stayRow.append(go);
     panel.append(el('p', { textContent: 'What are these payments for? Your answer beats our guess.' }),
       btn('A holiday', () => send('holiday', 0)), ' ',
+      btn('A work trip', () => send('business', 0)), ' ',
       btn('A temporary stay', () => { stayRow.hidden = false; }), ' ',
       btn('A move abroad', () => send('move', 0)), stayRow);
   }
@@ -74,6 +75,23 @@
     const reserve = el('input', { type: 'number', min: '0', step: '100', value: String(f.reserve) });
     const result = el('p', { className: 'muted' });
     const route = (text) => () => { result.textContent = text; };
+    if (f.savingsTransfer) {
+      const t = f.savingsTransfer;
+      panel.append(el('p', { className: 'sim', textContent: 'SIMULATION: only moves money between your own accounts, only after you approve.' }),
+        row('Prepared transfer', `${money(t.amount)} from ${t.from} to ${t.to}`),
+        btn(`Approve ${money(t.amount)} transfer`, async () => {
+          const r = await api('/api/me/savings-transfer', 'POST', { amount: t.amount });
+          notify(`Set aside (simulation). Payment account now ${money(r.balance)}, savings ${money(r.savings)}.`);
+          refresh();
+        }), ' ',
+        f.automation.authorized
+          ? btn('Turn off automatic saving', async () => { await api('/api/me/preferences', 'PUT', { autoSave: null }); notify('Automatic saving turned off.'); refresh(); }, 'ghost')
+          : btn(`Allow automatic saving up to ${money(f.automation.maxMonthly)}/month`, async () => {
+            await api('/api/me/preferences', 'PUT', { autoSave: { max: f.automation.maxMonthly } });
+            notify(`Automatic saving allowed up to ${money(f.automation.maxMonthly)}/month. You can turn it off any time.`);
+            refresh();
+          }, 'ghost'));
+    }
     panel.append(el('p', { textContent: 'How we got there (correct anything that is off):' }),
       row('Balance', money(f.balance)), row('Bills per month', money(f.bills)), row('Everyday spending per month', money(f.everyday)),
       row('Renewals coming up', money(f.planned)), row(f.reserveChosen ? 'Your reserve' : 'Default reserve (3 months)', money(f.reserve)),
@@ -137,6 +155,40 @@
       btn('Dismiss', () => panel.remove(), 'ghost'), result);
   }
 
+  // ---- subscriptions: a free trial ended and the first paid charge was held ------------------------
+  function trialBlocked(card, panel) {
+    const f = card.facts;
+    panel.append(row('Subscription', f.m), row('First paid charge (held)', money(f.amount)),
+      el('p', { className: 'muted', textContent: 'Holding a payment does not cancel the contract.' }),
+      btn('Enable payments', async () => {
+        await api('/api/me/events', 'POST', { cat: 'subscription_enabled', m: f.m, amt: 0 });
+        notify(`Payments to ${f.m} enabled. Renewals will now go through.`);
+        refresh();
+      }), ' ', btn('Help me cancel', () => { panel.replaceChildren(); cancel(card, panel); }, 'ghost'), ' ', close(panel));
+  }
+
+  // ---- travel: a work trip: expense tagging (simulated) --------------------------------------------
+  function businessTrip(card, panel) {
+    const f = card.facts;
+    panel.append(el('p', { className: 'sim', textContent: 'SIMULATION: nothing is exported or sent.' }),
+      ...(f.merchant ? [row('Booking', `${f.merchant}${f.cost ? ` (${money(f.cost)})` : ''}`)] : []),
+      el('p', { textContent: 'Tag this as a business expense, with VAT details and a receipt export for your expense report.' }),
+      el('p', { className: 'muted', textContent: 'Check whether your corporate card or employer already covers travel insurance before buying anything extra.' }),
+      btn('Tag as business expense (simulated)', () => { notify('Tagged as a business expense (simulation). Nothing was exported.'); panel.remove(); }), ' ', close(panel));
+  }
+
+  // ---- travel: a payout from a carrier arrived: mark the claim as settled -------------------------
+  function claimSettled(card, panel) {
+    const f = card.facts;
+    panel.append(row('Payment received', `${money(f.amount)} from ${f.carrier}`),
+      el('p', { textContent: 'If this is the payout for your travel claim, you can mark the claim as settled.' }),
+      btn('Yes, mark as settled', async () => {
+        await api('/api/me/dismiss', 'POST', { actionId: card.actionId });
+        notify(`Claim marked as settled. Thanks, Kate will stop reminding you about ${f.carrier}.`);
+        refresh();
+      }), ' ', btn('No, this is something else', () => panel.remove(), 'ghost'));
+  }
+
   function info(card, panel) {
     panel.append(el('p', { className: 'sim', textContent: 'SIMULATION' }),
       el('p', { textContent: `This would open: ${card.product ? card.product.name : 'the related KBC service'}.` }), close(panel));
@@ -151,6 +203,9 @@
     'review-subscriptions': SUBS, 'subscription-hike': SUBS, 'subscription-cancelled-charge': followUp, 'subscription-annual': SUBS,
     'household-bill-shortfall': (c, p) => (c.facts.transfer ? transfer(c, p) : info(c, p)),
     'excess-cash': savings,
+    'subscription-trial-blocked': trialBlocked,
+    'business-trip': businessTrip,
+    'claim-settled': claimSettled,
     'subscription-new': newSubscription,
     'temporary-stay': coverCheck,
     'household-bill-increase': billIncrease,

@@ -8,11 +8,15 @@ let base;
 test.before(() => new Promise((res) => server.listen(0, '127.0.0.1', () => { base = `http://127.0.0.1:${server.address().port}`; res(); })));
 test.after(() => server.close());
 
+const sessions = new Map(); // one login per persona: the server throttles logins (10/min per address)
 async function as(userId) {
+  if (sessions.has(userId)) return sessions.get(userId);
   const r = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, passcode: PASSCODE }) });
   const cookie = r.headers.get('set-cookie').split(';')[0];
   const call = (path, method = 'GET', body) => fetch(`${base}${path}`, { method, headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
-  return { get: (p) => call(p).then((r2) => r2.json()), call };
+  const session = { get: (p) => call(p).then((r2) => r2.json()), call };
+  sessions.set(userId, session);
+  return session;
 }
 const cards = async (u) => (await u.get('/api/me/experience?channel=app')).cards;
 
@@ -71,4 +75,35 @@ test('savings: customer can correct the reserve and the estimate follows', async
 test('advisor and customer scopes stay separate for the new endpoints', async () => {
   const adv = await as('a1');
   for (const p of ['/api/me/subscriptions', '/api/me/transfer', '/api/me/preferences']) assert.ok((await adv.call(p)).status >= 400);
+});
+
+test('set aside: only up to what the engine proposes, from the customer\'s own balance', async () => {
+  const u = await as('c2');
+  const card = (await cards(u)).find((x) => x.actionId === 'excess-cash');
+  const max = card.facts.savingsTransfer.amount;
+  for (const amount of [max + 1, 1e9, -5, 0, 'x', null]) assert.strictEqual((await u.call('/api/me/savings-transfer', 'POST', { amount })).status, 400);
+  const r = await (await u.call('/api/me/savings-transfer', 'POST', { amount: max })).json();
+  assert.strictEqual(r.balance, 28000 - max);
+  assert.strictEqual(r.savings, max);
+  const nobody = await as('c3'); // overdrawn customer: no proposal, so nothing may move
+  assert.strictEqual((await nobody.call('/api/me/savings-transfer', 'POST', { amount: 10 })).status, 400);
+});
+
+test('automatic saving: limited opt-in that can be turned off', async () => {
+  const u = await as('c2');
+  for (const autoSave of [{ max: -1 }, { max: 'x' }, { max: 1e9 }, 5, {}]) assert.strictEqual((await u.call('/api/me/preferences', 'PUT', { autoSave })).status, 400);
+  const on = await (await u.call('/api/me/preferences', 'PUT', { autoSave: { max: 300 } })).json();
+  assert.deepStrictEqual(on.autoSave, { max: 300 });
+  const off = await (await u.call('/api/me/preferences', 'PUT', { autoSave: null })).json();
+  assert.strictEqual(off.autoSave, null);
+});
+
+test('trial held: enabling the payment and marking a claim settled go through the normal paths', async () => {
+  const u = await as('sub3');
+  assert.ok((await cards(u)).some((x) => x.actionId === 'subscription-trial-blocked'));
+  assert.strictEqual((await u.call('/api/me/events', 'POST', { cat: 'subscription_enabled', m: 'LearnPlus', amt: 0 })).status, 202);
+  assert.ok(!(await cards(u)).some((x) => x.actionId === 'subscription-trial-blocked'));
+  const t = await as('tr5');
+  assert.strictEqual((await t.call('/api/me/dismiss', 'POST', { actionId: 'claim-settled' })).status, 200);
+  assert.ok(!(await cards(t)).some((x) => x.actionId === 'claim-settled'));
 });

@@ -112,7 +112,7 @@ function throttled(ip) {
 
 const SCENARIOS = { c1: 'subscription overview', c2: 'excess cash, medium risk', c3: 'overdrawn (care only)', c4: 'holiday + disruption', c5: 'moved abroad',
   c6: 'household bills + idle cash', c7: 'personalisation off', sub1: 'subscription price hike', sub2: 'charged after cancelling', sav1: 'savings with chosen reserve',
-  sav2: 'one-off payment (no card)', hh1: 'bill increase', hh2: 'bill shortfall + savings transfer', tr1: 'booking, nothing abroad yet', tr2: 'temporary stay', tr3: 'cancelled booking' };
+  sav2: 'one-off payment (no card)', hh1: 'bill increase', hh2: 'bill shortfall + savings transfer', tr1: 'booking, nothing abroad yet', tr2: 'temporary stay', tr3: 'cancelled booking', sub3: 'free trial ended (payment held)', tr4: 'work trip', tr5: 'claim payout received' };
 const CHANNELS = new Set(['app', 'email', 'advisor']);
 const CONSENT_KEYS = ['personalization', 'transactionInsights', 'advisorInsights'];
 
@@ -214,12 +214,17 @@ async function handle(req, res) {
           if (b.reserve !== null && !(Number.isFinite(b.reserve) && b.reserve >= 0 && b.reserve <= 1e7)) return send(res, 400, { error: 'invalid reserve' });
           if (b.reserve !== null) next.reserve = b.reserve; else delete next.reserve;
         }
+        if ('autoSave' in b) {
+          const a = b.autoSave;
+          if (a !== null && !(a && Number.isFinite(a.max) && a.max > 0 && a.max <= 1e5)) return send(res, 400, { error: 'invalid autoSave' });
+          if (a) next.autoSave = { max: a.max }; else delete next.autoSave;
+        }
         me.prefs = next;
         publish(me);
-        return send(res, 200, { riskComfort: next.riskComfort || null, reserve: next.reserve ?? null });
+        return send(res, 200, { riskComfort: next.riskComfort || null, reserve: next.reserve ?? null, autoSave: next.autoSave || null });
       }
       if (p === '/api/me/preferences' && req.method === 'GET') {
-        return send(res, 200, { riskComfort: (me.prefs && me.prefs.riskComfort) || null, reserve: me.prefs && me.prefs.reserve !== undefined ? me.prefs.reserve : null });
+        return send(res, 200, { riskComfort: (me.prefs && me.prefs.riskComfort) || null, reserve: me.prefs && me.prefs.reserve !== undefined ? me.prefs.reserve : null, autoSave: (me.prefs && me.prefs.autoSave) || null });
       }
       if (p === '/api/me/subscriptions' && req.method === 'GET') {
         return send(res, 200, recurring(me.events, 'subscription').map((x) => ({ m: x.m, monthly: x.monthly })));
@@ -235,6 +240,19 @@ async function handle(req, res) {
         me.events.push({ ...trackEvent });
         publish(me);
         return send(res, 200, { ...prepared, approved: true });
+      }
+      // SIMULATED set-aside (payment account -> savings). The amount is validated against what the engine
+      // itself proposes right now, so a client cannot move an arbitrary amount.
+      if (p === '/api/me/savings-transfer' && req.method === 'POST') {
+        const b = await readJson(req);
+        const amt = Math.round(b.amount * 100) / 100;
+        const m = decide(me, { dismissed: dismissed.get(me.id) }).moments.find((x) => x.id === 'excess_cash');
+        const max = m ? m.facts.savingsTransfer.amount : 0;
+        if (!Number.isFinite(amt) || amt <= 0 || amt > max || amt > me.balance) return send(res, 400, { error: 'invalid transfer' });
+        me.balance = Math.round((me.balance - amt) * 100) / 100;
+        me.savings = Math.round(((Number.isFinite(me.savings) ? me.savings : 0) + amt) * 100) / 100;
+        publish(me);
+        return send(res, 200, { simulated: true, balance: me.balance, savings: me.savings });
       }
       // SIMULATED own-account transfer (savings -> payment account); only moves the customer's own money.
       if (p === '/api/me/transfer' && req.method === 'POST') {
