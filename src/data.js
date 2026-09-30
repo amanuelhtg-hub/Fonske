@@ -18,7 +18,7 @@ const ON = { personalization: true, transactionInsights: true, advisorInsights: 
 
 const CORE_CUSTOMERS = [
   { // Subscription creep: five subscriptions, two streaming services, one price increase.
-    id: 'c1', name: 'Lotte Peeters', age: 29, lang: 'nl', balance: 4200, consent: { ...ON },
+    id: 'c1', name: 'Lotte Peeters', age: 29, balance: 4200, consent: { ...ON },
     events: [
       ...base(3100, 850, 380),
       ...recurring('subscription', 'Netflix', [-13, -13, -13, -13, -15, -15], 5),
@@ -29,12 +29,12 @@ const CORE_CUSTOMERS = [
     ],
   },
   { // Excess cash, comfortable with some risk.
-    id: 'c2', name: 'Thomas Claes', age: 32, lang: 'en', balance: 28000, consent: { ...ON },
+    id: 'c2', name: 'Thomas Claes', age: 32, balance: 28000, consent: { ...ON },
     prefs: { riskComfort: 'medium' },
     events: base(3600, 900, 320),
   },
   { // Overdrawn: expense-control help only, no product pushing. Also has subscriptions.
-    id: 'c3', name: 'Amina El Idrissi', age: 41, lang: 'nl', balance: -240, consent: { ...ON },
+    id: 'c3', name: 'Amina El Idrissi', age: 41, balance: -240, consent: { ...ON },
     events: [
       ...base(2000, 1050, 420),
       ...recurring('subscription', 'Netflix', [-15, -15, -15, -15, -15, -15], 5),
@@ -45,7 +45,7 @@ const CORE_CUSTOMERS = [
     ],
   },
   { // Short holiday in Spain, with a flight rebooking: travel + disruption.
-    id: 'c4', name: 'Jonas Willems', age: 26, lang: 'en', balance: 2800,
+    id: 'c4', name: 'Jonas Willems', age: 26, balance: 2800,
     consent: { ...ON, advisorInsights: false },
     events: [
       ...base(2700, 700, 300),
@@ -55,7 +55,7 @@ const CORE_CUSTOMERS = [
     ],
   },
   { // Moved to Germany: steady spending abroad, foreign rent, home spending stopped.
-    id: 'c5', name: 'Sophie Maes', age: 34, lang: 'nl', balance: 3500, consent: { ...ON },
+    id: 'c5', name: 'Sophie Maes', age: 34, balance: 3500, consent: { ...ON },
     events: [
       ...monthly('salary', 3400, 6, 26), ...monthly('rent', -800, 6, 50),
       ...monthly('groceries', -350, 6, 55),
@@ -64,7 +64,7 @@ const CORE_CUSTOMERS = [
     ],
   },
   { // Household bills, an annual insurance renewal coming up, and idle cash (low risk comfort).
-    id: 'c6', name: 'Luc Vermeulen', age: 52, lang: 'nl', balance: 41000, consent: { ...ON },
+    id: 'c6', name: 'Luc Vermeulen', age: 52, balance: 41000, consent: { ...ON },
     prefs: { riskComfort: 'low' },
     events: [
       ...monthly('salary', 4200, 6, 26), ...monthly('mortgage', -1100, 6, 3),
@@ -76,7 +76,7 @@ const CORE_CUSTOMERS = [
     ],
   },
   { // Personalisation switched off: the engine must not analyse her data at all.
-    id: 'c7', name: 'Marie Dubois', age: 38, lang: 'en', balance: 26000,
+    id: 'c7', name: 'Marie Dubois', age: 38, balance: 26000,
     consent: { personalization: false, transactionInsights: false, advisorInsights: false },
     events: [
       ...base(3000, 800, 300),
@@ -114,7 +114,7 @@ function syntheticCustomer(i) {
   const t = CUSTOMERS[i % CUSTOMERS.length];
   const k = 0.8 + rnd() * 0.5;
   return {
-    id: `s${i}`, name: `Synthetic ${i}`, age: t.age, lang: t.lang, prefs: t.prefs,
+    id: `s${i}`, name: `Synthetic ${i}`, age: t.age, prefs: t.prefs,
     balance: Math.round(t.balance * k), consent: t.consent,
     events: t.events.map((e) => ({ ...e, amt: Math.round(e.amt * k) })),
   };
