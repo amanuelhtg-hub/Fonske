@@ -1,25 +1,125 @@
 'use strict';
 const { eur, recurring } = require('./util');
 
+// Demo-data helpers (oldest -> newest amounts, `off` = days since the latest payment).
+const monthly = (cat, amt, months, off) => Array.from({ length: months }, (_, i) => ({ d: i * 30 + off, cat, amt }));
+const bill = (m, amounts, off) => amounts.map((amt, i) => ({ d: (amounts.length - 1 - i) * 30 + off, cat: 'utility', amt, m }));
+
+// Step change + next due date per monthly bill: the latest payment vs the one before it.
+function billCalendar(ev) {
+  const by = new Map();
+  for (const e of ev) {
+    if (e.cat !== 'utility' || !e.m) continue;
+    const l = by.get(e.m);
+    if (l) l.push(e); else by.set(e.m, [e]);
+  }
+  const out = [];
+  for (const [m, l] of by) {
+    if (l.length < 3) continue;
+    l.sort((a, b) => b.d - a.d); // oldest first
+    const n = l.length;
+    let ok = l[n - 1].d <= 35;
+    for (let i = 1; ok && i < n; i++) { const gap = l[i - 1].d - l[i].d; ok = gap >= 25 && gap <= 35; }
+    if (!ok) continue;
+    out.push({ m, amount: -l[n - 1].amt, prev: -l[n - 2].amt, dueIn: 30 - l[n - 1].d, energy: /energy|electric|gas/i.test(m) });
+  }
+  return out;
+}
+
+const STEP = 0.15; // latest payment at least 15% (and €5) above the previous one
+
+// Bill increase + shortfall opportunities (cheap: no bills -> nothing to do).
+function extra(s) {
+  const out = [];
+  if (!s.bills.length) return out;
+  const up = s.bills.filter((b) => b.amount - b.prev >= 5 && b.amount / b.prev - 1 >= STEP)
+    .sort((a, b) => (b.amount - b.prev) - (a.amount - a.prev))[0];
+  if (up) {
+    out.push({ id: 'bill_increase', confidence: up.energy ? 0.7 : 0.85, evidence: [
+      `${up.m}: latest payment ${eur(up.amount)}, previous payment ${eur(up.prev)} (+${Math.round((up.amount / up.prev - 1) * 100)}%)`,
+      up.energy ? 'Energy bills also move with consumption, advance adjustments or an annual settlement, so a higher payment is not necessarily a worse tariff'
+        : 'Increases like this often happen when a promotional discount ends'],
+    facts: { m: up.m, from: up.prev, to: up.amount, energy: up.energy } });
+  }
+  const due = s.bills.filter((b) => b.dueIn >= 0 && b.dueIn <= 3);
+  const need = due.reduce((t, b) => t + b.amount, 0);
+  const short = Math.ceil(need - s.account);
+  if (due.length && short > 0) {
+    const top = due.reduce((a, b) => (b.amount > a.amount ? b : a));
+    const canCover = s.savings >= short;
+    out.push({ id: 'bill_shortfall', confidence: 0.9, evidence: [
+      `${due.map((b) => `${b.m} (${eur(b.amount)})`).join(', ')} expected within ${Math.max(...due.map((b) => b.dueIn))} day(s), based on its monthly pattern`,
+      `Payment account holds ${eur(s.account)}: about ${eur(short)} short`,
+      canCover ? `Your linked savings account holds ${eur(s.savings)}` : 'No linked savings balance is available to cover it'],
+    facts: { m: top.m, dueIn: top.dueIn, need, account: s.account, short, canCover,
+      transfer: canCover ? { from: 'savings', to: 'payment account', amount: short } : null } });
+  }
+  return out;
+}
+
 module.exports = {
   name: 'household',
+  personas: [
+    { // Internet bill jumped from €45 to €60 (promotion probably ended). Healthy account.
+      id: 'c8', name: 'Eva Janssens', age: 31, lang: 'en', balance: 3100, consent: { personalization: true, transactionInsights: true, advisorInsights: true },
+      events: [
+        ...monthly('salary', 3000, 6, 26), ...monthly('rent', -900, 6, 3), ...monthly('groceries', -350, 6, 10),
+        ...bill('Internet provider', [-45, -45, -45, -45, -45, -60], 10),
+        ...bill('Mobile operator', [-20, -20, -20, -20, -20, -20], 17),
+      ],
+    },
+    { // Electricity bill due tomorrow but the current account is €80 short; linked savings can cover it.
+      id: 'c9', name: 'Pieter De Smet', age: 44, lang: 'nl', balance: 120, savings: 2500, consent: { personalization: true, transactionInsights: true, advisorInsights: true },
+      events: [
+        ...monthly('salary', 2800, 6, 12), ...monthly('rent', -950, 6, 3), ...monthly('groceries', -400, 6, 8),
+        ...bill('Energy supplier', [-200, -200, -200, -200, -200, -200], 29),
+        ...bill('Water company', [-25, -25, -25, -25, -25, -25], 19),
+      ],
+    },
+  ],
   derive: (c) => ({
+    bills: billCalendar(c.events),
+    account: c.balance, savings: c.savings > 0 ? c.savings : 0,
     utilities: recurring(c.events, 'utility'),
     annual: c.events.filter((e) => e.cat === 'insurance' && e.d >= 335 && e.d <= 395)
       .map((e) => ({ m: e.m, amount: -e.amt, inDays: 365 - e.d })),
   }),
   detect(s) {
+    const out = extra(s);
     const upcoming = s.annual.filter((a) => a.inDays >= 0 && a.inDays <= 45);
-    if (s.utilities.length < 2 && !upcoming.length) return [];
+    if (s.utilities.length < 2 && !upcoming.length) return out;
     const total = s.utilities.reduce((t, x) => t + x.monthly, 0);
     const evidence = [];
     if (s.utilities.length) evidence.push(`${s.utilities.length} recurring bills costing ${eur(total)}/month (${s.utilities.map((u) => u.m).join(', ')})`);
     for (const u of s.utilities) if (u.increase >= 0.05) evidence.push(`${u.m} up ${Math.round(u.increase * 100)}% since first payment`);
     for (const a of upcoming) evidence.push(`${a.m} (${eur(a.amount)}) looks annual and is due in ~${a.inDays} days`);
-    return [{ id: 'household', confidence: 0.5 + 0.1 * s.utilities.length + (upcoming.length ? 0.2 : 0), evidence,
-      facts: { count: s.utilities.length, total, upcoming, hikes: s.utilities.filter((u) => u.increase >= 0.05).map((u) => u.m) } }];
+    out.push({ id: 'household', confidence: 0.5 + 0.1 * s.utilities.length + (upcoming.length ? 0.2 : 0), evidence,
+      facts: { count: s.utilities.length, total, upcoming, hikes: s.utilities.filter((u) => u.increase >= 0.05).map((u) => u.m) } });
+    return out;
   },
   actions: {
+    bill_increase: {
+      id: 'household-bill-increase', kind: 'care', priority: 4,
+      product: { id: 'kbc-bills', name: 'KBC Mobile: bills calendar & direct debits' },
+      en: (f) => ({ title: `Your ${f.m} payment rose from ${eur(f.from)} to ${eur(f.to)}`,
+        body: f.energy ? 'This can be higher consumption, an adjusted advance or a yearly settlement. Want me to look at your latest bill? Share it only if you like, and I will check whether it is worth comparing.'
+          : 'Want me to check whether a promotional discount ended? If the reason is not visible to me I will ask for your latest bill, then prepare options.', cta: 'Check my bill' }),
+      nl: (f) => ({ title: `Je betaling aan ${f.m} steeg van ${eur(f.from)} naar ${eur(f.to)}`,
+        body: f.energy ? 'Dat kan door een hoger verbruik, een aangepast voorschot of een jaarafrekening komen. Zal ik je laatste factuur bekijken? Deel ze enkel als je wil, dan kijk ik of een vergelijking loont.'
+          : 'Zal ik nagaan of een promotiekorting afliep? Kan ik de reden niet zien, dan vraag ik je laatste factuur en stel ik opties voor.', cta: 'Controleer mijn factuur' }),
+      advisor: ['Recurring bill increased; reason unknown', 'Ask for the bill before comparing; energy changes can be usage or advance related'],
+    },
+    bill_shortfall: {
+      id: 'household-bill-shortfall', kind: 'care', priority: 5,
+      product: { id: 'kbc-own-transfer', name: 'KBC Mobile: transfer between own accounts' },
+      en: (f) => ({ title: `${f.m} is due ${f.dueIn === 0 ? 'today' : f.dueIn === 1 ? 'tomorrow' : `in ${f.dueIn} days`}: your account is ${eur(f.short)} short`,
+        body: f.canCover ? `Your linked savings account has enough. Review a ${eur(f.short)} transfer? Nothing moves until you approve it.` : 'Top up your payment account before the payment date to avoid fees.',
+        cta: f.canCover ? `Review ${eur(f.short)} transfer` : 'Open accounts' }),
+      nl: (f) => ({ title: `${f.m} moet ${f.dueIn === 0 ? 'vandaag' : f.dueIn === 1 ? 'morgen' : `binnen ${f.dueIn} dagen`} betaald worden: je rekening komt ${eur(f.short)} tekort`,
+        body: f.canCover ? `Je gekoppelde spaarrekening heeft genoeg. Een overschrijving van ${eur(f.short)} bekijken? Er verandert niets tot jij goedkeurt.` : 'Stort vóór de betaaldatum bij op je betaalrekening om kosten te vermijden.',
+        cta: f.canCover ? `Bekijk overschrijving van ${eur(f.short)}` : 'Open rekeningen' }),
+      advisor: ['Expected bill exceeds payment account balance', 'Offer a customer-approved own-account transfer; no product sale'],
+    },
     household: {
       id: 'household-bills', kind: 'care', priority: 3,
       product: { id: 'kbc-bills', name: 'KBC Mobile: bills calendar & direct debits' },
