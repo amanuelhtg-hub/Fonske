@@ -20,12 +20,14 @@ module.exports = {
   // One pass. Every outflow lands in exactly one bucket, so nothing is counted twice:
   // bills (rent, insurance, ...) vs. everyday spending (everything else).
   derive(c, b) {
-    let bills = 0, everyday = 0, planned = 0, oneOff = 0, in30 = 0, in60 = 0;
+    let bills = 0, everyday = 0, planned = 0, oneOff = 0, in30 = 0, in60 = 0, spend30 = 0, salaryRecent = 0, salaryOlder = 0;
     for (const e of c.events) {
       if (e.d < 30) in30 += e.amt;
       if (e.d < 60) in60 += e.amt;
+      if (e.cat === 'salary' && e.amt > 0) { if (e.d < 45) salaryRecent++; else if (e.d < 180) salaryOlder++; }
       if (e.amt > 0 && e.cat !== 'salary' && e.d < 60 && e.amt > oneOff) oneOff = e.amt;
       if (e.amt >= 0 || SKIP.has(e.cat)) continue;
+      if (e.d < 30) spend30 -= e.amt;
       if (e.d < WINDOW) { if (BILLS.has(e.cat)) bills -= e.amt; else everyday -= e.amt; }
       // Annual bill (charged 11-12 months ago) renews within the horizon.
       else if (e.cat === 'insurance' && e.d >= 365 - HORIZON && e.d <= 365) planned -= e.amt;
@@ -38,23 +40,40 @@ module.exports = {
     // Reconstructed balance 30 / 60 days ago, measured against the same needs: is high cash a habit?
     const need = monthlyBills + monthlyEveryday + reserve + MIN_SURPLUS;
     const sustained = b.balance - in30 >= need && b.balance - in60 >= need;
-    return { monthlyBills, monthlyEveryday, planned, reserve, reserveChosen: !!reserveChosen, surplus, sustained, oneOff };
+    // Adaptive amount: shrink when this month's spending runs well above the norm, stop when income went quiet.
+    const monthly = monthlyBills + monthlyEveryday;
+    const rising = monthly > 0 && spend30 > 1.15 * monthly;
+    const incomeUncertain = salaryRecent === 0 && salaryOlder > 0;
+    const buffer = 0.1 * monthly; // uncertainty buffer on top of the reserve
+    let suggested = Math.floor((surplus - buffer) / 100) * 100;
+    if (rising) suggested = Math.floor(suggested / 200) * 100;
+    const profile = !!(c.prefs && c.prefs.investmentProfile);
+    const auto = c.prefs && c.prefs.autoSave && Number.isFinite(c.prefs.autoSave.max) && c.prefs.autoSave.max > 0 ? c.prefs.autoSave.max : 0;
+    return { rising, incomeUncertain, suggested, profile, auto, monthlyBills, monthlyEveryday, planned, reserve, reserveChosen: !!reserveChosen, surplus, sustained, oneOff };
   },
   detect(s, b) {
-    if (s.monthlyBills + s.monthlyEveryday <= 0 || s.surplus < MIN_SURPLUS || b.savingsRecent >= 2 || b.overdraft > 0) return [];
+    if (s.incomeUncertain || s.suggested < 100 || s.monthlyBills + s.monthlyEveryday <= 0 || s.surplus < MIN_SURPLUS || b.savingsRecent >= 2 || b.overdraft > 0) return [];
     const oneOffDriven = s.oneOff > 0 && b.balance - s.oneOff < s.reserve + s.monthlyBills + s.monthlyEveryday;
     const confidence = 0.6 + (s.sustained ? 0.2 : 0) - (oneOffDriven ? 0.2 : 0);
     const product = PRODUCTS[b.riskComfort] || PRODUCTS.low;
     const amount = Math.floor(s.surplus / 100) * 100;
+    const destination = s.profile ? product : PRODUCTS.low; // investments only with an existing investment profile
+    const amt = s.auto ? Math.min(s.suggested, s.auto) : s.suggested;
     const r = Math.round;
     return [{ id: 'excess_cash', confidence,
       evidence: [
         `Available balance ${eur(b.balance)}, minus expected bills ${eur(s.monthlyBills)}, everyday spending ${eur(s.monthlyEveryday)}${s.planned ? `, a renewal of ${eur(s.planned)} coming up` : ''} and ${s.reserveChosen ? 'your chosen' : 'a default 3-month'} reserve of ${eur(s.reserve)}, leaves about ${eur(amount)} over the next 30 days (future income ignored)`,
         s.sustained ? 'Your balance was at least this high 30 and 60 days ago too, not just after one payment'
           : oneOffDriven ? `A single incoming payment of ${eur(s.oneOff)} recently lifted your balance, so this estimate is less certain` : 'Your balance was lower at some point in the last two months',
+        s.rising ? 'Your spending this month is running well above your usual level, so the suggested amount is lower' : 'Your spending this month is in line with your usual level',
         b.riskComfort ? `stated comfort with risk: ${b.riskComfort} (investing still needs a full investment profile)` : 'no stated risk comfort yet: only safe options suggested'],
       facts: { excess: amount, balance: r(b.balance), bills: r(s.monthlyBills), everyday: r(s.monthlyEveryday), planned: r(s.planned), reserve: r(s.reserve),
         reserveChosen: s.reserveChosen, riskComfort: b.riskComfort || null, product, savingsProduct: PRODUCTS.low,
+        // Prepared for one-tap approval; nothing moves until the customer approves.
+        savingsTransfer: { amount: amt, from: 'payment account', to: destination.name, toProductId: destination.id },
+        hasInvestmentProfile: s.profile, spendingRising: s.rising,
+        // Optional automation: only a proposal until the customer authorizes it within a limit.
+        automation: { authorized: s.auto > 0, maxMonthly: s.auto || amt },
         // Customer can correct any assumption; the route follows their answer to "is it needed soon?".
         routes: { soon: 'keep accessible / savings goal', reserve: 'accessible savings account', longTerm: 'investment-profile process (guided handoff)' } } }];
   },
@@ -62,7 +81,7 @@ module.exports = {
     excess_cash: {
       id: 'excess-cash', kind: 'commercial', priority: 2,
       en: (f) => ({ title: `An estimated ${eur(f.excess)} could be set aside`,
-        body: `We kept your bills, everyday spending${f.planned ? ', an upcoming renewal' : ''} and ${f.reserveChosen ? 'your chosen' : 'a 3-month'} buffer of ${eur(f.reserve)} out of it. Is this money needed for something coming up? If not, we can move it to a ${f.savingsProduct.name}; for investing we would first walk you through your investment profile. You can correct any assumption.`, cta: 'Review and set aside' }),
+        body: `We kept your bills, everyday spending${f.planned ? ', an upcoming renewal' : ''} and ${f.reserveChosen ? 'your chosen' : 'a 3-month'} buffer of ${eur(f.reserve)} out of it. Is this money needed for something coming up? If not, we can prepare a transfer of ${eur(f.savingsTransfer.amount)} to a ${f.savingsProduct.name} for one-tap approval; ${f.hasInvestmentProfile ? 'for investing we would check the options against your existing investment profile' : 'for investing we would first walk you through your investment profile'}. You can correct any assumption.`, cta: 'Review and set aside' }),
       advisor: ['Ask first: is this money needed soon? Needed soon: keep accessible or a savings goal',
         'Emergency reserve still being built: accessible savings route',
         'Long-term goal and interest in investing: open the investment-profile process (objectives, risk, finances, horizon). A high balance or risk toggle is not enough',

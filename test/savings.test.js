@@ -67,3 +67,40 @@ test('savings: wording names the savings account, never a fund, and promises no 
   assert.ok(!/fund|return|rendement|guarantee/i.test(card.title + card.body));
   assert.strictEqual(card.facts.savingsProduct.id, 'kbc-savings');
 });
+
+test('autopilot: prepares a one-tap transfer below the surplus, to savings by default', () => {
+  const f = excess(cust('sav1')).facts;
+  assert.strictEqual(f.savingsTransfer.amount, 700); // 900 surplus minus 10% uncertainty buffer, rounded down
+  assert.strictEqual(f.savingsTransfer.toProductId, 'kbc-savings');
+  assert.strictEqual(f.automation.authorized, false);
+  const c = cust('sav1'); const card = render(decide(c), 'app', c).cards[0];
+  assert.ok(card.body.includes('€700') && card.body.includes('one-tap'));
+});
+
+test('autopilot: investment destination only with an existing investment profile', () => {
+  const c = cust('sav1'); c.prefs.riskComfort = 'medium';
+  assert.strictEqual(excess(c).facts.savingsTransfer.toProductId, 'kbc-savings');
+  c.prefs.investmentProfile = true;
+  const f = excess(c).facts;
+  assert.strictEqual(f.savingsTransfer.toProductId, 'kbc-balanced-fund');
+  assert.strictEqual(f.hasInvestmentProfile, true);
+});
+
+test('autopilot: amount shrinks when spending rises and stops when income goes quiet', () => {
+  const rising = cust('sav1');
+  rising.balance = 6000;
+  const normal = excess(rising).facts.savingsTransfer.amount;
+  rising.events.push({ d: 5, cat: 'groceries', amt: -500 });
+  const r = excess(rising);
+  assert.ok(!r || r.facts.savingsTransfer.amount < normal);
+  const quiet = cust('sav1');
+  quiet.events = quiet.events.filter((e) => e.cat !== 'salary' || e.d >= 45);
+  assert.strictEqual(excess(quiet), undefined);
+});
+
+test('autopilot: authorized automation is capped at the agreed limit', () => {
+  const c = cust('sav1'); c.prefs.autoSave = { max: 300 };
+  const f = excess(c).facts;
+  assert.strictEqual(f.savingsTransfer.amount, 300);
+  assert.deepStrictEqual(f.automation, { authorized: true, maxMonthly: 300 });
+});
