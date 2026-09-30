@@ -41,7 +41,7 @@ module.exports = {
     return { monthlyBills, monthlyEveryday, planned, reserve, reserveChosen: !!reserveChosen, surplus, sustained, oneOff };
   },
   detect(s, b) {
-    if (s.surplus < MIN_SURPLUS || b.savingsRecent >= 2 || b.overdraft > 0) return [];
+    if (s.monthlyBills + s.monthlyEveryday <= 0 || s.surplus < MIN_SURPLUS || b.savingsRecent >= 2 || b.overdraft > 0) return [];
     const oneOffDriven = s.oneOff > 0 && b.balance - s.oneOff < s.reserve + s.monthlyBills + s.monthlyEveryday;
     const confidence = 0.6 + (s.sustained ? 0.2 : 0) - (oneOffDriven ? 0.2 : 0);
     const product = PRODUCTS[b.riskComfort] || PRODUCTS.low;
@@ -50,11 +50,11 @@ module.exports = {
     return [{ id: 'excess_cash', confidence,
       evidence: [
         `Available balance ${eur(b.balance)}, minus expected bills ${eur(s.monthlyBills)}, everyday spending ${eur(s.monthlyEveryday)}${s.planned ? `, a renewal of ${eur(s.planned)} coming up` : ''} and ${s.reserveChosen ? 'your chosen' : 'a default 3-month'} reserve of ${eur(s.reserve)}, leaves about ${eur(amount)} over the next 30 days (future income ignored)`,
-        s.sustained ? 'Your balance has stayed at this level for two months, not just after one payment'
-          : oneOffDriven ? `A single incoming payment of ${eur(s.oneOff)} recently lifted your balance, so this estimate is less certain` : 'Your balance was lower earlier in the last two months',
+        s.sustained ? 'Your balance was at least this high 30 and 60 days ago too, not just after one payment'
+          : oneOffDriven ? `A single incoming payment of ${eur(s.oneOff)} recently lifted your balance, so this estimate is less certain` : 'Your balance was lower at some point in the last two months',
         b.riskComfort ? `stated comfort with risk: ${b.riskComfort} (investing still needs a full investment profile)` : 'no stated risk comfort yet: only safe options suggested'],
       facts: { excess: amount, balance: r(b.balance), bills: r(s.monthlyBills), everyday: r(s.monthlyEveryday), planned: r(s.planned), reserve: r(s.reserve),
-        reserveChosen: s.reserveChosen, riskComfort: b.riskComfort || null, product,
+        reserveChosen: s.reserveChosen, riskComfort: b.riskComfort || null, product, savingsProduct: PRODUCTS.low,
         // Customer can correct any assumption; the route follows their answer to "is it needed soon?".
         routes: { soon: 'keep accessible / savings goal', reserve: 'accessible savings account', longTerm: 'investment-profile process (guided handoff)' } } }];
   },
@@ -62,7 +62,7 @@ module.exports = {
     excess_cash: {
       id: 'excess-cash', kind: 'commercial', priority: 2,
       en: (f) => ({ title: `An estimated ${eur(f.excess)} could be set aside`,
-        body: `We kept your bills, everyday spending${f.planned ? ', an upcoming renewal' : ''} and ${f.reserveChosen ? 'your chosen' : 'a 3-month'} buffer of ${eur(f.reserve)} out of it. Is this money needed for something coming up? If not, we can move it to a ${f.product.name}; for investing we would first walk you through your investment profile. You can correct any assumption.`, cta: 'Review and set aside' }),
+        body: `We kept your bills, everyday spending${f.planned ? ', an upcoming renewal' : ''} and ${f.reserveChosen ? 'your chosen' : 'a 3-month'} buffer of ${eur(f.reserve)} out of it. Is this money needed for something coming up? If not, we can move it to a ${f.savingsProduct.name}; for investing we would first walk you through your investment profile. You can correct any assumption.`, cta: 'Review and set aside' }),
       advisor: ['Ask first: is this money needed soon? Needed soon: keep accessible or a savings goal',
         'Emergency reserve still being built: accessible savings route',
         'Long-term goal and interest in investing: open the investment-profile process (objectives, risk, finances, horizon). A high balance or risk toggle is not enough',

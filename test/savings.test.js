@@ -44,3 +44,26 @@ test('savings: suppressed in overdraft, and the card explains the investment pro
   const card = render(decide(ok), 'app', ok).cards[0];
   assert.ok(card.title.includes('€900') && card.body.includes('investment profile'));
 });
+
+test('savings: odd inputs do not fire or crash', () => {
+  const base = () => { const c = cust('sav1'); c.prefs = {}; return c; };
+  const none = base(); none.events = [];
+  assert.strictEqual(excess(none), undefined); // no history: nothing to forecast from
+  const one = base(); one.events = [{ d: 0, cat: 'groceries', amt: -50 }]; one.balance = 50000;
+  assert.ok(excess(one)); // single event still forecastable
+  const old = base(); old.events = [{ d: 400, cat: 'rent', amt: -900 }];
+  assert.strictEqual(excess(old), undefined);
+  const zero = base(); zero.events = [{ d: 1, cat: 'groceries', amt: 0 }, { d: 2, cat: 'rent', amt: 500 }];
+  assert.strictEqual(excess(zero), undefined);
+  const neg = base(); neg.balance = -100;
+  assert.strictEqual(excess(neg), undefined);
+  const off = cust('sav1'); off.consent.transactionInsights = false;
+  assert.deepStrictEqual(decide(off).moments, []);
+});
+
+test('savings: wording names the savings account, never a fund, and promises no return', () => {
+  const c = cust('sav1'); c.prefs.riskComfort = 'high';
+  const card = render(decide(c), 'app', c).cards[0];
+  assert.ok(!/fund|return|rendement|guarantee/i.test(card.title + card.body));
+  assert.strictEqual(card.facts.savingsProduct.id, 'kbc-savings');
+});
