@@ -16,7 +16,7 @@ const base = (salary, rent, groceries) => [
 
 const ON = { personalization: true, transactionInsights: true, advisorInsights: true };
 
-const CUSTOMERS = [
+const CORE_CUSTOMERS = [
   { // Subscription creep: five subscriptions, two streaming services, one price increase.
     id: 'c1', name: 'Lotte Peeters', age: 29, lang: 'nl', balance: 4200, consent: { ...ON },
     events: [
@@ -85,6 +85,10 @@ const CUSTOMERS = [
     ],
   },
 ];
+
+// Features can ship their own demo personas (`personas` export in src/features/<name>.js).
+// Give them unique ids (c8, c9, ...) and assign them to an advisor below if needed.
+const CUSTOMERS = [...CORE_CUSTOMERS, ...require('./features').FEATURES.flatMap((f) => f.personas || [])];
 
 // Advisors can only ever see customers assigned to them (and only with consent).
 const ADVISORS = [

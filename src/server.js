@@ -16,7 +16,7 @@ const MAX_BENCH = 2_300_000;
 let benchRunning = false;
 const MAX_EVENTS = 5000;
 const MAX_STREAMS = 3;
-const EVENT_CATS = new Set(['salary', 'rent', 'mortgage', 'groceries', 'savings_transfer', 'subscription', 'utility', 'insurance', 'abroad', 'rent_abroad', 'disruption', 'overdraft_fee']);
+const EVENT_CATS = new Set([...require('./features').FEATURES.flatMap((f) => f.eventCats || []),'salary', 'rent', 'mortgage', 'groceries', 'savings_transfer', 'subscription', 'utility', 'insurance', 'abroad', 'rent_abroad', 'disruption', 'overdraft_fee']);
 
 const customers = new Map(CUSTOMERS.map((c) => [c.id, structuredClone(c)]));
 const advisors = new Map(ADVISORS.map((a) => [a.id, a]));
