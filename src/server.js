@@ -312,7 +312,7 @@ async function handle(req, res) {
   const rel = p === '/' ? 'index.html' : decodeURIComponent(p).replace(/^\/+/, '');
   const file = path.resolve(PUBLIC, rel);
   if (!file.startsWith(PUBLIC + path.sep)) return send(res, 403, { error: 'forbidden' });
-  const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg' };
+  const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.woff2': 'font/woff2' };
   fs.readFile(file, (err, data) => {
     if (err || !types[path.extname(file)]) return send(res, 404, { error: 'not found' });
     res.writeHead(200, { ...HEADERS, 'Content-Type': types[path.extname(file)] });

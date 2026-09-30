@@ -207,7 +207,18 @@
         c.why && c.why.length ? el('ul', {}, ...c.why.map((w) => el('li', { textContent: w }))) : el('p', { textContent: 'This is a general message. Nothing about you was analysed.' }));
       primaryBtn = el('button', { className: 'btn btn-primary', textContent: payload.primary_cta, onclick: onPrimary });
       const secondary = el('button', { className: 'btn-text', textContent: payload.secondary_cta, onclick: onSecondary });
-      card.replaceChildren(head, el('h3', { className: 'k-title', textContent: payload.title }), el('p', { className: 'k-desc', textContent: payload.description }),
+      // Brief contextual description: long server text is clamped to 4 lines with a "Read more" toggle.
+      const desc = el('p', { className: 'k-desc', textContent: payload.description });
+      let more = null;
+      if (payload.description.length > 210) {
+        desc.classList.add('is-clamped');
+        more = el('button', { className: 'k-more', textContent: 'Read more', attrs: { 'aria-expanded': 'false' }, onclick: () => {
+          const open = desc.classList.toggle('is-clamped') === false;
+          more.textContent = open ? 'Show less' : 'Read more';
+          more.setAttribute('aria-expanded', String(open));
+        } });
+      }
+      card.replaceChildren(head, el('h3', { className: 'k-title', textContent: payload.title }), desc, ...(more ? [more] : []),
         ...[buildChoices(), flow.extra ? flow.extra() : null].filter(Boolean), primaryBtn, secondary,
         ...(flow.note ? [el('p', { className: 'k-note', textContent: flow.note })] : []), why);
       setBusy(false);

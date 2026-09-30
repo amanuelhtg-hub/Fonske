@@ -29,3 +29,10 @@ Vanilla JS, no build step, strict CSP (no inline scripts or styles, no `innerHTM
 - `public/cards.js`: the action card component. Payload contract `{ event_id, card_type, merchant, amount, title, description, primary_cta, secondary_cta }`. State flow per card: triggered (slides up) -> processing (spinner, 800 ms) -> success (green check, "Done", fades out after 2 s). "Not now" hides a card for the session. One flow per action id (`FLOWS`), all simulated.
 - `public/app.js`: login, idle home screen (balance and activity from `GET /api/me/home`), settings drawer, presenter controls, advisor view.
 - Presenter / "Wizard of Oz" controls: `P` toggles presenter mode (cards stay hidden until triggered), `1`-`9` triggers the n-th card, `0` or `Esc` returns to the idle home screen, `R` reloads. Open the app with `?presenter=1` to start in presenter mode.
+
+### Look and feel (verified)
+- Typography: Inter, self-hosted in `public/fonts/` (SIL Open Font License), so text renders identically on every device. Card headings 18px/600, body 15px/400/1.5, buttons 16px/600.
+- Phone frame: on screens at least 900x640 the customer app is shown inside a phone frame (status bar, home indicator) so a screencast looks like a native app. The advisor view stays full width. Add `?frame=0` to turn the frame off.
+- Long card descriptions are clamped to 4 lines with "Read more", to keep cards brief.
+- Accessibility: touch targets are at least 44px, keyboard focus ring is visible, `prefers-reduced-motion` is respected, and the canvas does not change in dark mode. Known trade-off: the guide's own colours give 4.0:1 for muted text and 2.7:1 for white on #00A6EB, below WCAG AA for small text.
+- Automated checks used during development: computed-style audit against every number in the style guide, plus a sweep of login/home/card/drawer/advisor at 320, 360, 390, 768, 1280 and 1440px for fonts, palette, use of blue, touch targets, overflow and image loading.

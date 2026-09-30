@@ -17,7 +17,16 @@
   const isShown = (id) => !snoozed.has(id) && !hiddenAll && (!presenter || revealed.has(id));
 
   // ---------- screens ----------
+  // On wide screens the customer app is shown inside a phone frame (great for screencasts). The advisor view stays full width.
+  const wideQuery = window.matchMedia('(min-width: 900px) and (min-height: 640px)');
+  const frameOff = new URLSearchParams(location.search).get('frame') === '0';
+  let screen = 'login';
+  function applyFrame() { document.body.classList.toggle('device', wideQuery.matches && !frameOff && screen !== 'advisor'); }
+  wideQuery.addEventListener('change', applyFrame);
+
   function show(name) {
+    screen = name;
+    applyFrame();
     for (const s of ['login', 'customer', 'advisor']) $(s).hidden = s !== name;
     $('topbar').hidden = name === 'login';
     $('openSettings').hidden = name !== 'customer';
@@ -46,6 +55,8 @@
 
   // ---------- customer: idle home + cards ----------
   const QUICK = [['send', 'Pay'], ['wallet', 'Transfer'], ['card', 'Cards'], ['home', 'Home']];
+  const CAT_ICON = { salary: 'arrowDown', transfer_in: 'arrowDown', claim_payout: 'arrowDown', rent: 'home', mortgage: 'home', rent_abroad: 'home', groceries: 'cart', utility: 'zap',
+    insurance: 'shield', savings_transfer: 'wallet', abroad: 'card', disruption: 'plane', travel_booking: 'plane', overdraft_fee: 'alert', subscription: 'repeat', subscription_annual: 'repeat' };
   const CAT_LABEL = { salary: 'Salary', rent: 'Rent', mortgage: 'Mortgage', groceries: 'Groceries', savings_transfer: 'Savings transfer', utility: 'Utilities', insurance: 'Insurance',
     abroad: 'Card payment abroad', rent_abroad: 'Rent abroad', disruption: 'Travel cost', overdraft_fee: 'Overdraft fee', transfer_in: 'Incoming payment', travel_booking: 'Travel booking',
     claim_payout: 'Payout', subscription: 'Subscription', subscription_annual: 'Annual subscription' };
@@ -74,7 +85,7 @@
     $('tx').replaceChildren(...h.transactions.map((t) => {
       const name = t.label || CAT_LABEL[t.cat] || t.cat;
       const when = t.daysAgo === 0 ? 'Today' : t.daysAgo === 1 ? 'Yesterday' : `${t.daysAgo} days ago`;
-      return el('li', { className: 'tx' }, t.label ? logo(t.label, 'sm') : categoryBadge('receipt', 'sm'),
+      return el('li', { className: 'tx' }, t.label ? logo(t.label, 'sm') : categoryBadge(CAT_ICON[t.cat] || 'receipt', 'sm'),
         el('div', { className: 'grow' }, el('div', { className: 'name', textContent: name }), el('div', { className: 'when', textContent: when })),
         el('div', { className: `amt${t.amount > 0 ? ' in' : ''}`, textContent: `${t.amount > 0 ? '+' : '−'}${money(Math.abs(t.amount), 2)}` }));
     }));
@@ -190,7 +201,21 @@
     } catch (e) { out.replaceChildren(el('p', { className: 'k-error', textContent: e.message })); }
   }
 
+  // Decorative status-bar icons for the phone frame (signal bars and a battery).
+  function statusIcons() {
+    const NS = 'http://www.w3.org/2000/svg';
+    const s = document.createElementNS(NS, 'svg');
+    for (const [k, v] of Object.entries({ viewBox: '0 0 54 14', width: 54, height: 14, 'aria-hidden': 'true' })) s.setAttribute(k, v);
+    const add = (tag, attrs) => { const n = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); s.append(n); };
+    [4, 6, 8, 10].forEach((h, i) => add('rect', { x: i * 5, y: 12 - h, width: 3, height: h, rx: 1, fill: '#2D3748' }));
+    add('rect', { x: 26, y: 1.5, width: 24, height: 11, rx: 3.5, fill: 'none', stroke: '#2D3748', 'stroke-width': 1, opacity: 0.45 });
+    add('rect', { x: 28, y: 3.5, width: 17, height: 7, rx: 2, fill: '#2D3748' });
+    add('rect', { x: 51.5, y: 5, width: 1.5, height: 4, rx: 0.75, fill: '#2D3748', opacity: 0.45 });
+    return s;
+  }
+
   // ---------- wiring ----------
+  $('sbIcons').append(statusIcons());
   $('openSettings').append(svg('sliders', 20));
   $('closeSettings').append(svg('x', 20));
   $('openSettings').onclick = openDrawer;
