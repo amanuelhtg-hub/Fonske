@@ -106,36 +106,39 @@ test('wording never promises refunds or returns', () => {
   }
 });
 
-test('trial protection: opted-in customer with a held first payment gets the blocked card', () => {
-  const r = decide(cust('sub3'));
-  assert.deepStrictEqual(ids(cust('sub3')), ['subscription_trial_blocked']);
-  const card = render(r, 'app', cust('sub3')).cards[0];
-  assert.match(card.title, /LearnPlus/);
-  assert.match(card.body, /does not cancel the contract/);
-  assert.ok(card.why.includes('you turned on trial protection'));
+test('trial: a tiny card-verification payment yields a reminder card, never a block', () => {
+  assert.deepStrictEqual(ids(cust('sub3')), ['subscription_trial_started']);
+  const f = decide(cust('sub3')).moments[0].facts;
+  assert.deepStrictEqual([f.daysAgo, f.expectedInDays, f.reminderInDays], [10, 20, 17]);
+  const card = render(decide(cust('sub3')), 'app', cust('sub3')).cards[0];
+  assert.match(card.body, /Nothing is blocked/);
+  assert.match(card.cta, /reminder/i);
+  assert.ok(card.why.every((w) => !/guarantee|refund/i.test(w)));
 });
 
-test('trial protection: needs opt-in, a supported trial, and stops once enabled or cancelled', () => {
-  const off = cust('sub3'); delete off.prefs;
-  assert.deepStrictEqual(ids(off), []);
-  off.events.push({ d: 30, cat: 'subscription_guard', amt: 0 }); // opt-in by event also works
-  assert.deepStrictEqual(ids(off), ['subscription_trial_blocked']);
-  const noTrial = cust('sub3');
-  noTrial.events = noTrial.events.filter((e) => e.cat !== 'subscription_trial');
-  assert.deepStrictEqual(ids(noTrial), []);
-  const en = cust('sub3');
-  en.events.push(sub.enablePayments(en, 'LearnPlus').trackEvent);
-  en.events.find((e) => e.cat === 'subscription_enabled').d = 1; // enabled after the held charge
-  assert.deepStrictEqual(ids(en), []);
-  const canc = cust('sub3');
-  canc.events.push({ d: 1, cat: 'subscription_cancelled', amt: 0, m: 'LearnPlus' });
-  assert.ok(!ids(canc).includes('subscription_trial_blocked'));
+test('trial: not for real charges, old pings, billed/cancelled/reminded trials', () => {
+  const run = (mut) => { const c = cust('sub3'); mut(c); return ids(c); };
+  assert.deepStrictEqual(run((c) => { c.events.find((e) => e.cat === 'subscription_trial').amt = -15; }), []); // a real charge
+  assert.deepStrictEqual(run((c) => { c.events.find((e) => e.cat === 'subscription_trial').d = 45; }), []);
+  assert.deepStrictEqual(run((c) => c.events.push({ d: 2, cat: 'subscription', amt: -12, m: 'LearnPlus' })), []);
+  assert.deepStrictEqual(run((c) => c.events.push({ d: 3, cat: 'subscription_cancelled', amt: 0, m: 'LearnPlus' })), []);
+  assert.deepStrictEqual(run((c) => c.events.push(sub.setTrialReminder(c, 'LearnPlus').trackEvent)), []);
+  assert.deepStrictEqual(run((c) => { c.events.find((e) => e.cat === 'subscription_trial').d = 29; }), ['subscription_trial_started']);
 });
 
-test('overdraft keeps the trial card (care); other personas never get it', () => {
+test('trial card is care (kept under overdraft); other personas never get it', () => {
   const c = cust('sub3'); c.events.push({ d: 1, cat: 'overdraft_fee', amt: -12 });
-  assert.ok(decide(c).decisions.some((d) => d.moment === 'subscription_trial_blocked'));
-  for (const id of ['sub1', 'sub2', 'c1', 'c2']) assert.ok(!ids(cust(id)).includes('subscription_trial_blocked'));
+  assert.ok(decide(c).decisions.some((d) => d.moment === 'subscription_trial_started'));
+  for (const id of ['sub1', 'sub2', 'c1', 'c2']) assert.ok(!ids(cust(id)).includes('subscription_trial_started'));
+});
+
+test('cancellation help points at the direct debit mandate manager and promises no refund', () => {
+  const sim = sub.simulateCancellation(cust('sub2'), 'Spotify');
+  assert.strictEqual(sim.product.id, 'kbc-sdd-mandates');
+  assert.ok(sim.steps.some((s) => /mandate manager/.test(s)));
+  assert.match(sim.note, /does not cancel the contract/);
+  const card = render(decide(cust('sub2')), 'app', cust('sub2')).cards.find((x) => x.moment === 'subscription_cancelled_charge');
+  assert.strictEqual(card.product.id, 'kbc-sdd-mandates');
 });
 
 test('keep marker silences the hike and annual cards', () => {
@@ -153,8 +156,7 @@ test('overview lists cost, frequency, next charge, status and monthly total', ()
   assert.deepStrictEqual([cl.frequency, cl.nextInDays], ['yearly', 15]);
   assert.strictEqual(o.monthlyTotal, Math.round((11 + 89 / 12) * 100) / 100);
   assert.strictEqual(sub.subscriptionOverview(cust('sub1')).items[0].status, 'price increased');
-  const held = sub.subscriptionOverview(cust('sub3'));
-  assert.strictEqual(held.items[0].status, 'first payment held');
-  assert.strictEqual(held.monthlyTotal, 0);
+  const tr = sub.subscriptionOverview(cust('sub3'));
+  assert.deepStrictEqual([tr.items[0].frequency, tr.items[0].nextInDays, tr.items[0].amount, tr.monthlyTotal], ['trial', 20, null, 0]);
   assert.deepStrictEqual(sub.subscriptionOverview({ ...cust('sub1'), events: [] }), { items: [], monthlyTotal: 0 });
 });
