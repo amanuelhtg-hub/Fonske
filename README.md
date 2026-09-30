@@ -71,7 +71,7 @@ For screen recording, open `http://localhost:3000/?presenter=1`. Cards stay hidd
 - Zoomit e-invoices, PSD2 data, journey status and booking details are stand-in events in synthetic customer data. There are no live integrations, and no real customer data anywhere.
 
 **Not built:**
-- Freezing a payment through KBC's SEPA mandate manager. Kate only reminds about trials and never blocks a charge.
+- Freezing a payment through KBC's SEPA mandate manager. Kate points to the mandate manager on the relevant card, but does not execute a freeze. For trials she only reminds and never blocks a charge.
 - The Bolero handoff for investing (Kate only points to the investment profile), and tracking the outcome of a request after it is sent.
 - The statutory EU261 calculation. Kate separates an airline request from an insurance claim in wording only.
 
