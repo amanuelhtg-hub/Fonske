@@ -29,8 +29,9 @@ function billCalendar(ev) {
 const STEP = 0.15; // latest payment at least 15% (and €5) above the previous one
 
 // ---- Contract Watch (prototype): documents and tariff catalogue are SIMULATED ----------------------
-// customer.documents = what the customer connected or forwarded, already read into fields. Anything the
-// reader could not find is simply absent and is reported as missing, never guessed.
+// customer.documents = structured e-invoice data received through Zoomit (the e-invoicing service inside KBC
+// Mobile), already parsed into fields: no inbox access, no PDF scraping. Simulated here. Anything the invoice
+// does not contain is simply absent and is reported as missing, never guessed.
 //   { m, plan, speedMbps?, usageKwh?, promoEndedDaysAgo?, renewalInDays?, cancelNoticeDays?, terminationFee? }
 const CATALOGUE = { // current tariffs per supplier (illustrative; in production this is a tariff-data feed)
   'Internet provider': [
@@ -55,12 +56,12 @@ function watch(s) {
     if (!Number.isFinite(d.renewalInDays)) missing.push('renewal date');
     const base = { m: d.m, plan: d.plan || null, from: b.prev, to: b.amount, energy: b.energy, promoEnded, missing,
       renewalInDays: Number.isFinite(d.renewalInDays) ? d.renewalInDays : null, cancelNoticeDays: d.cancelNoticeDays ?? null };
-    const lines = [`Your ${d.m} contract${d.plan ? ` (${d.plan})` : ''} is on file`,
+    const lines = [`Your ${d.m} e-invoice via Zoomit shows ${d.plan ? `the plan ${d.plan}` : 'your contract details'}`,
       `${d.m}: latest payment ${eur(b.amount)}, previous payment ${eur(b.prev)}`];
-    if (promoEnded) lines.push(`The document says the discount ended ${d.promoEndedDaysAgo} day(s) ago`);
+    if (promoEnded) lines.push(`The e-invoice says the discount ended ${d.promoEndedDaysAgo} day(s) ago`);
     if (b.energy || missing.includes('plan speed')) {
       out.push({ id: 'contract_watch', confidence: 0.65, evidence: [...lines, `Cannot compare yet. Missing: ${missing.join(', ') || 'usage and contract terms'}`],
-        facts: { ...base, status: 'needs_info', missing: missing.length ? missing : ['usage'] } });
+        facts: { ...base, status: 'needs_info', source: 'zoomit', missing: missing.length ? missing : ['usage'] } });
       continue;
     }
     const opts = (CATALOGUE[d.m] || []).filter((o) => o.speedMbps >= d.speedMbps && o.monthly < b.amount)
@@ -72,9 +73,9 @@ function watch(s) {
     if (annualSaving < MIN_SAVING) continue;
     lines.push(`Same provider lists "${best.name}" at ${best.speedMbps} Mbps for ${eur(best.monthly)}/month (yours: ${d.speedMbps} Mbps)`,
       `Switch fee ${eur(best.switchFee)}; estimated first-year saving ${eur(annualSaving)}`);
-    if (missing.length) lines.push(`Not found in the document: ${missing.join(', ')}`);
+    if (missing.length) lines.push(`Not found in the e-invoice: ${missing.join(', ')}`);
     out.push({ id: 'contract_watch', confidence: 0.9 - (missing.length ? 0.1 : 0), evidence: lines,
-      facts: { ...base, status: 'ready', newPlan: best.name, newSpeedMbps: best.speedMbps, newMonthly: best.monthly, switchFee: best.switchFee,
+      facts: { ...base, status: 'ready', source: 'zoomit', newPlan: best.name, newSpeedMbps: best.speedMbps, newMonthly: best.monthly, switchFee: best.switchFee,
         monthlySaving, annualSaving, prepared: { type: 'plan_change', supplier: d.m, fromPlan: d.plan || null, toPlan: best.name } } });
   }
   return out;
@@ -166,12 +167,12 @@ module.exports = {
       product: { id: 'kbc-bills', name: 'KBC Mobile: bills calendar & direct debits' },
       en: (f) => (f.status === 'ready'
         ? { title: `${f.promoEnded ? `Your ${f.m} discount ended` : `Your ${f.m} payment rose`}: a cheaper plan may fit`,
-          body: `Based on your contract, "${f.newPlan}" from the same provider lists the same speed for ${eur(f.monthlySaving)} less per month. Estimated saving about ${eur(f.annualSaving)} in the first year${f.switchFee ? ` after a ${eur(f.switchFee)} switch fee` : ''}. The provider confirms the final price, and nothing changes until you approve.`,
+          body: `Based on your Zoomit e-invoice, "${f.newPlan}" from the same provider lists the same speed for ${eur(f.monthlySaving)} less per month. Estimated saving about ${eur(f.annualSaving)} in the first year${f.switchFee ? ` after a ${eur(f.switchFee)} switch fee` : ''}. The provider confirms the final price, and nothing changes until you approve.`,
           cta: 'Review prepared change' }
         : { title: `Your ${f.m} payment rose from ${eur(f.from)} to ${eur(f.to)}`,
-          body: `I can't compare plans yet. Missing: ${f.missing.join(', ')}. ${f.energy ? 'A higher energy payment can come from usage, an adjusted advance or a yearly settlement, so I need your latest bill before saying anything about the tariff.' : 'Forward your latest bill and I will check it.'}`,
+          body: `I can't compare plans yet. Missing: ${f.missing.join(', ')}. ${f.energy ? 'A higher energy payment can come from usage, an adjusted advance or a yearly settlement, so I need the invoice details (Zoomit) or your latest bill before saying anything about the tariff.' : 'If this supplier sends its invoices through Zoomit, the plan and usage details arrive automatically. Otherwise you can share your latest bill.'}`,
           cta: 'Add latest bill' }),
-      advisor: ['Contract on file; recurring bill changed', 'Only compare with contract terms (and usage for energy); show fees and switching costs', 'Estimates, not guarantees'],
+      advisor: ['Invoice data received via Zoomit; recurring bill changed', 'Only compare with contract terms (and usage for energy); show fees and switching costs', 'Estimates, not guarantees'],
     },
     bill_increase: {
       id: 'household-bill-increase', kind: 'care', priority: 4,
