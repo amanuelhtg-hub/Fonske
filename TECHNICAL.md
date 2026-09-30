@@ -21,3 +21,11 @@ For the team's documentation and README. Numbers below were measured on an 8-cor
 
 ## Known limits
 Rules-based detection (an ML model is a planned upgrade), in-memory state, demo login, synthetic data only.
+
+## Front end (style guide implementation)
+Vanilla JS, no build step, strict CSP (no inline scripts or styles, no `innerHTML`).
+- `public/style.css`: design tokens from the style guide (KBC blue `#00A6EB` only on primary buttons and the Kate icon).
+- `public/ui.js`: DOM helpers, inline SVG icons, the Kate icon, generated mock merchant logos (initials on a stable colour, never the real trademarks).
+- `public/cards.js`: the action card component. Payload contract `{ event_id, card_type, merchant, amount, title, description, primary_cta, secondary_cta }`. State flow per card: triggered (slides up) -> processing (spinner, 800 ms) -> success (green check, "Done", fades out after 2 s). "Not now" hides a card for the session. One flow per action id (`FLOWS`), all simulated.
+- `public/app.js`: login, idle home screen (balance and activity from `GET /api/me/home`), settings drawer, presenter controls, advisor view.
+- Presenter / "Wizard of Oz" controls: `P` toggles presenter mode (cards stay hidden until triggered), `1`-`9` triggers the n-th card, `0` or `Esc` returns to the idle home screen, `R` reloads. Open the app with `?presenter=1` to start in presenter mode.
