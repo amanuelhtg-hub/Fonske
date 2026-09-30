@@ -9,7 +9,7 @@ const bill = (m, amounts, off) => amounts.map((amt, i) => ({ d: (amounts.length 
 function billCalendar(ev) {
   const by = new Map();
   for (const e of ev) {
-    if (e.cat !== 'utility' || !e.m) continue;
+    if (e.cat !== 'utility' || !e.m || e.amt >= 0) continue;
     const l = by.get(e.m);
     if (l) l.push(e); else by.set(e.m, [e]);
   }
@@ -38,7 +38,7 @@ function extra(s) {
     out.push({ id: 'bill_increase', confidence: up.energy ? 0.7 : 0.85, evidence: [
       `${up.m}: latest payment ${eur(up.amount)}, previous payment ${eur(up.prev)} (+${Math.round((up.amount / up.prev - 1) * 100)}%)`,
       up.energy ? 'Energy bills also move with consumption, advance adjustments or an annual settlement, so a higher payment is not necessarily a worse tariff'
-        : 'Increases like this often happen when a promotional discount ends'],
+        : 'A jump like this can mean a promotional discount ended (we cannot see the reason from transactions alone)'],
     facts: { m: up.m, from: up.prev, to: up.amount, energy: up.energy } });
   }
   const due = s.bills.filter((b) => b.dueIn >= 0 && b.dueIn <= 3);
