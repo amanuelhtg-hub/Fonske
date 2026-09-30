@@ -107,3 +107,13 @@ test('trial reminder and marking a claim settled go through the normal paths', a
   assert.strictEqual((await t.call('/api/me/dismiss', 'POST', { actionId: 'claim-settled' })).status, 200);
   assert.ok(!(await cards(t)).some((x) => x.actionId === 'claim-settled'));
 });
+
+test('static assets: logo and icon are served with the right type, traversal still blocked', async () => {
+  for (const [file, type] of [['/kate-logo.jpg', 'image/jpeg'], ['/kate-icon.png', 'image/png']]) {
+    const r = await fetch(`${base}${file}`);
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.headers.get('content-type'), type);
+    assert.ok((await r.arrayBuffer()).byteLength > 1000);
+  }
+  assert.notStrictEqual((await fetch(`${base}/..%2fsrc%2fserver.js`)).status, 200);
+});

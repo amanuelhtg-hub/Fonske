@@ -34,16 +34,9 @@
     for (const d of PATHS[name] || []) { const p = document.createElementNS(NS, 'path'); p.setAttribute('d', d); s.append(p); }
     return s;
   }
-  // The Kate assistant icon: KBC-blue circle with a white sparkle.
+  // The Kate assistant icon: the official circle mark (blue bars), shown on white surfaces.
   function kateIcon(size = 32) {
-    const wrap = el('span', { className: `kate-icon${size > 40 ? ' lg' : ''}` });
-    const s = document.createElementNS(NS, 'svg');
-    for (const [k, v] of Object.entries({ viewBox: '0 0 24 24', width: Math.round(size * 0.56), height: Math.round(size * 0.56), 'aria-hidden': 'true' })) s.setAttribute(k, v);
-    const p = document.createElementNS(NS, 'path');
-    p.setAttribute('d', 'M12 3l2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2z');
-    p.setAttribute('fill', '#fff');
-    s.append(p); wrap.append(s);
-    return wrap;
+    return el('img', { className: 'kate-icon', src: '/kate-icon.png', alt: 'Kate', width: size, height: size });
   }
 
   // ---- mock merchant logos: initials on a stable colour (never the KBC blue) ----

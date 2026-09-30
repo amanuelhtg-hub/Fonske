@@ -4,12 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#F8F9FA">
+<link rel="icon" type="image/png" href="/kate-icon.png">
 <title>Kate for KBC</title>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <header class="topbar" id="topbar" hidden>
-  <div class="brand"><span id="brandIcon"></span><span class="brand-name">Kate</span><span class="brand-sub">for KBC</span></div>
+  <div class="brand"><img class="brand-logo" src="/kate-logo.jpg" alt="Kate" width="110" height="29"><span class="brand-sub">for KBC</span></div>
   <div class="top-actions">
     <span id="presenterTag" class="presenter-tag" hidden>Presenter</span>
     <button id="openSettings" class="icon-btn" aria-label="Settings and demo controls" hidden></button>
@@ -19,9 +20,9 @@
 
 <main id="login" class="screen">
   <div class="panel-card stack mt-48">
-    <div id="loginIcon"></div>
+    <img class="login-logo" src="/kate-logo.jpg" alt="Kate" width="200" height="52">
     <div>
-      <h1 class="h1">Kate</h1>
+      <h1 class="h1">Welcome</h1>
       <p class="muted">Your personal finance assistant at KBC. Demo login with synthetic customers only.</p>
     </div>
     <label class="field"><span class="label">Customer or advisor</span><select id="persona"></select></label>

@@ -312,10 +312,10 @@ async function handle(req, res) {
   const rel = p === '/' ? 'index.html' : decodeURIComponent(p).replace(/^\/+/, '');
   const file = path.resolve(PUBLIC, rel);
   if (!file.startsWith(PUBLIC + path.sep)) return send(res, 403, { error: 'forbidden' });
-  const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
+  const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg' };
   fs.readFile(file, (err, data) => {
     if (err || !types[path.extname(file)]) return send(res, 404, { error: 'not found' });
-    res.writeHead(200, { ...HEADERS, 'Content-Type': `${types[path.extname(file)]}; charset=utf-8` });
+    res.writeHead(200, { ...HEADERS, 'Content-Type': types[path.extname(file)] });
     res.end(data);
   });
 }
@@ -326,7 +326,7 @@ const server = http.createServer((req, res) => {
 
 if (require.main === module) {
   const port = Number(process.env.PORT) || 3000;
-  server.listen(port, '127.0.0.1', () => {
+  server.listen(port, process.env.HOST || '127.0.0.1', () => { // HOST=0.0.0.0 for containers / Cloud Run
     console.log(`Kate for KBC running on http://localhost:${port}`);
     if (!process.env.DEMO_PASSCODE) console.log(`Demo passcode for this run: ${PASSCODE}`);
   });

@@ -155,6 +155,11 @@
     'business-trip': () => ({ primary: 'Tag as business expense', secondary: 'Not now', note: 'Demo: nothing is exported.', run: async () => 'Tagged as a business expense.' }),
     'claim-settled': (c) => ({ primary: 'Mark as settled', secondary: 'Not now', run: async () => { await dismissServer(c); return 'Claim marked as settled.'; } }),
     'excess-cash': (c, ctx) => savingsFlow(c, ctx),
+    'buffer-clawback': (c) => ({ primary: `Move ${money(c.facts.transfer.amount)} back`, secondary: 'Not now', note: 'Demo: only moves money between your own accounts.',
+      run: async () => { await api('/api/me/transfer', 'POST', { amount: c.facts.transfer.amount }); return 'Money moved back to your current account.'; } }),
+    'household-contract-watch': (c) => ({ primary: c.cta, secondary: 'Not now',
+      note: 'Demo: simulated. The provider confirms the final price, and nothing changes until you approve.',
+      run: async () => (c.facts.status === 'ready' ? 'Change request sent.' : 'Got it. Kate checks again once you share the documents.') }),
   };
   const flowFor = (c, ctx) => (FLOWS[c.actionId] || ((x) => info(x)))(c, ctx);
 

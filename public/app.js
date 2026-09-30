@@ -191,8 +191,6 @@
   }
 
   // ---------- wiring ----------
-  $('brandIcon').append(kateIcon(32));
-  $('loginIcon').append(kateIcon(56));
   $('openSettings').append(svg('sliders', 20));
   $('closeSettings').append(svg('x', 20));
   $('openSettings').onclick = openDrawer;
