@@ -17,13 +17,13 @@ module.exports = {
   name: 'subscriptions',
   eventCats: ['subscription_annual', 'subscription_cancelled'],
   derive(c) {
-    const items = recurring(c.events, 'subscription');
+    const items = recurring(c.events, 'subscription').filter((x) => x.monthly > 0); // credits are not charges
     const last = new Map(); // merchant -> two latest charges
     const cancelled = new Map();
     const annual = [];
     for (const e of c.events) {
       if (!e.m) continue;
-      if (e.cat === 'subscription') {
+      if (e.cat === 'subscription' && e.amt < 0) {
         let r = last.get(e.m);
         if (!r) last.set(e.m, (r = { d1: 1e9, a1: 0, d2: 1e9, a2: 0, n: 0, first: 0 }));
         r.n++;
@@ -120,9 +120,9 @@ module.exports = {
     subscription_cancelled_charge: {
       id: 'subscription-cancelled-charge', kind: 'care', priority: 5, product: PRODUCT,
       en: (f) => ({ title: `${f.m} charged you ${money(f.amount)} after you cancelled`,
-        body: `You marked it as cancelled ${f.cancelledDaysAgo} days ago, but a payment followed ${f.daysAgo} days ago. The cancellation may not have gone through. You can follow up with the merchant or ask for a refund; blocking future payments alone does not end the contract.`, cta: 'Follow up cancellation' }),
+        body: `You marked it as cancelled ${f.cancelledDaysAgo} days ago, but a payment followed ${f.daysAgo} days ago. The cancellation may not have gone through. You can follow up with the merchant; blocking future payments alone does not end the contract.`, cta: 'Follow up cancellation' }),
       nl: (f) => ({ title: `${f.m} rekende ${money(f.amount)} aan na je opzegging`,
-        body: `Je markeerde het ${f.cancelledDaysAgo} dagen geleden als opgezegd, maar ${f.daysAgo} dagen geleden volgde toch een betaling. De opzegging is mogelijk niet doorgekomen. Neem contact op met de handelaar of vraag een terugbetaling; toekomstige betalingen blokkeren beëindigt het contract niet.`, cta: 'Opzegging opvolgen' }),
+        body: `Je markeerde het ${f.cancelledDaysAgo} dagen geleden als opgezegd, maar ${f.daysAgo} dagen geleden volgde toch een betaling. De opzegging is mogelijk niet doorgekomen. Neem contact op met de handelaar; toekomstige betalingen blokkeren beëindigt het contract niet.`, cta: 'Opzegging opvolgen' }),
       advisor: ['Charge after customer-reported cancellation', 'Help follow up with merchant; distinguish payment blocking from cancelling'],
     },
     subscription_annual: {

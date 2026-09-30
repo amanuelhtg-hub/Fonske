@@ -81,3 +81,27 @@ test('all actions have English and Dutch text', () => {
     assert.ok(t.title && t.body && t.cta);
   }
 });
+
+test('odd input: empty, single, merchant-less, credits and very old events never fire', () => {
+  const base = cust('sub1');
+  const run = (events) => ids({ ...base, events });
+  assert.deepStrictEqual(run([]), []);
+  assert.deepStrictEqual(run([{ d: 0, cat: 'subscription', amt: -5, m: 'A' }]), []);
+  assert.deepStrictEqual(run([30, 60, 90].map((d) => ({ d, cat: 'subscription', amt: -5 }))), []);
+  assert.deepStrictEqual(run([5, 35, 65].map((d) => ({ d, cat: 'subscription', amt: 9, m: 'Refunds' }))), []);
+  assert.deepStrictEqual(run([305, 335, 365].map((d) => ({ d, cat: 'subscription', amt: -9, m: 'Old' }))), []);
+});
+
+test('consent off: nothing is analysed', () => {
+  const c = cust('sub1');
+  c.consent = { personalization: true, transactionInsights: false, advisorInsights: false };
+  assert.deepStrictEqual(ids(c), []);
+});
+
+test('wording never promises refunds or returns', () => {
+  const facts = { m: 'X', from: 1, to: 2, yearly: 12, amount: 5, more: 0, daysAgo: 1, cancelledDaysAgo: 5, inDays: 9, count: 2, total: 9, hikes: [], overlaps: [] };
+  for (const a of Object.values(sub.actions)) for (const l of ['en', 'nl']) {
+    const t = a[l](facts);
+    assert.ok(!/refund|terugbetaling|guarantee|garanti/i.test(`${t.title} ${t.body}`));
+  }
+});
