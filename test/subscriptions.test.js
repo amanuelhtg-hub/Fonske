@@ -8,7 +8,7 @@ const sub = require('../src/features/subscriptions');
 const cust = (id) => structuredClone(CUSTOMERS.find((c) => c.id === id));
 const ids = (c) => decide(c).moments.map((m) => m.id).sort();
 
-test('c8: single subscription with a price hike gets a hike card with yearly impact', () => {
+test('sub1: single subscription with a price hike gets a hike card with yearly impact', () => {
   const r = decide(cust('sub1'));
   assert.deepStrictEqual(ids(cust('sub1')), ['subscription_hike']);
   const f = r.moments[0].facts;
@@ -68,10 +68,10 @@ test('overdraft keeps these care cards; simulated cancellation is labelled and p
   for (const a of Object.values(sub.actions)) assert.strictEqual(a.kind, 'care');
   const sim = sub.simulateCancellation(cust('sub1'), 'StreamFlix');
   assert.ok(sim.simulated && /SIMULATION/.test(sim.label) && /does not cancel/.test(sim.note));
-  const c8 = cust('sub1');
-  c8.events.push(sim.trackEvent, { d: 0, cat: 'subscription', amt: -15, m: 'StreamFlix' });
-  c8.events.find((e) => e === sim.trackEvent).d = 3; // cancellation marked, then charged again
-  assert.ok(ids(c8).includes('subscription_cancelled_charge'));
+  const sub1 = cust('sub1');
+  sub1.events.push(sim.trackEvent, { d: 0, cat: 'subscription', amt: -15, m: 'StreamFlix' });
+  sub1.events.find((e) => e === sim.trackEvent).d = 3; // cancellation marked, then charged again
+  assert.ok(ids(sub1).includes('subscription_cancelled_charge'));
 });
 
 test('all actions render title, body and cta', () => {
@@ -79,5 +79,29 @@ test('all actions render title, body and cta', () => {
   for (const a of Object.values(sub.actions)) {
     const t = a.en(facts);
     assert.ok(t.title && t.body && t.cta);
+  }
+});
+
+test('odd input: empty, single, merchant-less, credits and very old events never fire', () => {
+  const base = cust('sub1');
+  const run = (events) => ids({ ...base, events }).filter((m) => m.startsWith('subscription'));
+  assert.deepStrictEqual(run([]), []);
+  assert.deepStrictEqual(run([{ d: 0, cat: 'subscription', amt: -5, m: 'A' }]), []);
+  assert.deepStrictEqual(run([30, 60, 90].map((d) => ({ d, cat: 'subscription', amt: -5 }))), []);
+  assert.deepStrictEqual(run([5, 35, 65].map((d) => ({ d, cat: 'subscription', amt: 9, m: 'Refunds' }))), []);
+  assert.deepStrictEqual(run([305, 335, 365].map((d) => ({ d, cat: 'subscription', amt: -9, m: 'Old' }))), []);
+});
+
+test('consent off: nothing is analysed', () => {
+  const c = cust('sub1');
+  c.consent = { personalization: true, transactionInsights: false, advisorInsights: false };
+  assert.deepStrictEqual(ids(c), []);
+});
+
+test('wording never promises refunds or returns', () => {
+  const facts = { m: 'X', from: 1, to: 2, yearly: 12, amount: 5, more: 0, daysAgo: 1, cancelledDaysAgo: 5, inDays: 9, count: 2, total: 9, hikes: [], overlaps: [] };
+  for (const a of Object.values(sub.actions)) {
+    const t = a.en(facts);
+    assert.ok(!/refund|guarantee/i.test(`${t.title} ${t.body}`));
   }
 });
