@@ -7,6 +7,8 @@ const ON = { personalization: true, transactionInsights: true, advisorInsights: 
 const monthly = (cat, amt, months, off) => Array.from({ length: months }, (_, i) => ({ d: i * 30 + off, cat, amt }));
 const base = (salary, rent, groceries) => [...monthly('salary', salary, 6, 26), ...monthly('rent', -rent, 6, 3), ...monthly('groceries', -groceries, 6, 10)];
 
+const MIN_BOOKING = 50;
+
 module.exports = {
   name: 'travel',
   derive(c) {
@@ -15,11 +17,18 @@ module.exports = {
     const last = abroad.reduce((a, e) => (!a || e.d < a.d ? e : a), null);
     // Zero-amount marker events carry the customer's own answers: travel_confirm (m = holiday|stay|move,
     // c = country), travel_booking (m = carrier/hotel, amt = price) and booking_cancelled (m = carrier).
-    let confirm = null, booking = null, cancelled = null;
+    // Also: flight_delay (m = carrier, amt = hours), travel_pnr (m = 6-character booking code),
+    // claim_payout (amt > 0, m = payer) and, for the move checklist, recurring home payments.
+    let confirm = null, booking = null, cancelled = null, delay = null, pnr = null, payout = null;
+    const bills = new Set();
     for (const e of ev) {
+      if (e.m && e.d < 60 && (e.cat === 'subscription' || e.cat === 'utility' || e.cat === 'insurance')) bills.add(e.m);
       if (e.cat === 'travel_confirm' && e.d < 120 && (!confirm || e.d < confirm.d)) confirm = e;
       else if (e.cat === 'travel_booking' && e.amt < 0 && e.d < 60 && (!booking || e.d < booking.d)) booking = e;
       else if (e.cat === 'booking_cancelled' && e.d < 14 && (!cancelled || e.d < cancelled.d)) cancelled = e;
+      else if (e.cat === 'flight_delay' && e.amt > 0 && e.d < 14 && (!delay || e.d < delay.d)) delay = e;
+      else if (e.cat === 'travel_pnr' && e.d < 60 && /^[A-Z0-9]{6}$/.test(e.m || '')) pnr = e.m;
+      else if (e.cat === 'claim_payout' && e.amt > 0 && e.m && e.d < 14 && (!payout || e.d < payout.d)) payout = e;
     }
     return {
       situation: confirm ? confirm.m : null,
@@ -27,6 +36,10 @@ module.exports = {
       confirmCountry: confirm ? confirm.c || null : null,
       booking: booking ? { m: booking.m || null, cost: -booking.amt } : null,
       cancelled: cancelled ? cancelled.m || 'travel provider' : null,
+      delay: delay ? { m: delay.m || 'travel provider', hours: delay.amt } : null,
+      pnr,
+      payout: payout ? { m: payout.m, amt: payout.amt } : null,
+      bills: [...bills].slice(0, 6),
       abroadDays: new Set(abroad.map((e) => e.d)).size,
       abroadRecent: -sum(ev, (e) => e.cat === 'abroad' && e.d < 14),
       country: last ? last.c : null,
@@ -41,11 +54,15 @@ module.exports = {
     const heuristicMove = s.foreignRent || (s.abroadDays >= 15 && s.homeActivity === 0);
     const travelling = s.abroadRecent > 100;
     // 1. The customer's own answer is the reliable basis: it overrides what the payments suggest.
-    if (s.situation === 'move') {
-      out.push({ id: 'relocation', confidence: 0.95, facts: { country: cc, confirmed: true },
+    if (s.situation === 'business') {
+      // Work trip: no personal cross-sell, only expense help.
+      out.push({ id: 'business_trip', confidence: 0.92, facts: { country: cc, merchant: s.booking ? s.booking.m : null, cost: s.booking ? s.booking.cost : null },
+        evidence: ['you confirmed this is a work trip', ...(s.booking ? [`payment of ${eur(s.booking.cost)}${s.booking.m ? ` to ${s.booking.m}` : ''} (flight or accommodation)`] : [])] });
+    } else if (s.situation === 'move') {
+      out.push({ id: 'relocation', confidence: 0.95, facts: { country: cc, confirmed: true, bills: s.bills },
         evidence: ['you confirmed a move abroad', ...(s.abroadDays ? [`${s.abroadDays} days with spending abroad in the last 45 days`] : [])] });
     } else if (s.situation === 'stay') {
-      out.push({ id: 'temporary_stay', confidence: 0.92, facts: { country: cc, months: s.months },
+      out.push({ id: 'temporary_stay', confidence: 0.92, facts: { country: cc, months: s.months, longStay: s.months >= 4 },
         evidence: ['you confirmed a temporary stay abroad', ...(s.months ? [`planned duration: ${s.months} months`] : []),
           ...(s.abroadDays ? [`${s.abroadDays} days with spending abroad in the last 45 days`] : [])] });
     } else if (s.situation === 'holiday') {
@@ -59,21 +76,28 @@ module.exports = {
     } else if (travelling) {
       out.push({ id: 'travel', confidence: 0.9, facts: { country: cc, spent: s.abroadRecent },
         evidence: [`${eur(s.abroadRecent)} spent abroad in the last 14 days`, 'spending at home continues: looks like a trip, not a move'] });
-    } else if (s.booking && s.abroadDays === 0 && !s.cancelled) {
-      out.push({ id: 'trip_upcoming', confidence: 0.75, facts: { merchant: s.booking.m, cost: s.booking.cost },
+    } else if (s.booking && s.booking.cost >= MIN_BOOKING && s.abroadDays === 0 && !s.cancelled && !s.delay) {
+      // Confidence gate: small charges are not worth an alert.
+      out.push({ id: 'trip_upcoming', confidence: 0.8, facts: { merchant: s.booking.m, cost: s.booking.cost, pnr: s.pnr },
         evidence: [`payment of ${eur(s.booking.cost)}${s.booking.m ? ` to ${s.booking.m}` : ''} (flight or accommodation)`, 'no spending abroad yet: a trip may be coming up'] });
     }
     // 3. Disruption: a shared booking that was cancelled beats a cost-only hint.
-    if (s.cancelled) {
-      out.push({ id: 'travel_disruption', confidence: 0.95, facts: { booking: s.cancelled, cost: s.disruption },
-        evidence: [`your booking with ${s.cancelled} was reported as cancelled`, 'refund, rebooking and claim routes depend on the circumstances'] });
+    if (s.payout) {
+      // Money from the carrier arrived: close the loop instead of showing the open claim.
+      out.push({ id: 'claim_settled', confidence: 0.9, facts: { carrier: s.payout.m, amount: s.payout.amt },
+        evidence: [`incoming payment of ${eur(s.payout.amt)} from ${s.payout.m} in the last 14 days`] });
+    } else if (s.cancelled || s.delay) {
+      const b = s.cancelled || s.delay.m;
+      out.push({ id: 'travel_disruption', confidence: 0.95, facts: { booking: b, cost: s.disruption, delayHours: s.cancelled ? null : s.delay.hours, pnr: s.pnr },
+        evidence: [s.cancelled ? `your booking with ${b} was reported as cancelled` : `your flight with ${b} was reported delayed by ${s.delay.hours} hours`,
+          'refund, rebooking and claim routes depend on the circumstances'] });
     } else if (travelling && !s.situation && !heuristicMove && s.disruption > 0) {
       out.push({ id: 'travel_disruption', confidence: 0.95, facts: { cost: s.disruption },
         evidence: [`unexpected ${eur(s.disruption)} travel cost while abroad (rebooking or similar)`] });
     }
     return out;
   },
-  eventCats: ['travel_confirm', 'travel_booking', 'booking_cancelled'],
+  eventCats: ['travel_confirm', 'travel_booking', 'booking_cancelled', 'flight_delay', 'travel_pnr', 'claim_payout'],
   personas: [
     { // Booked flight + hotel, nothing abroad yet: Kate asks what the payments are for.
       id: 'tr1', name: 'Lotte Peeters', age: 29, balance: 3100, consent: { ...ON },
@@ -91,43 +115,67 @@ module.exports = {
       events: [...base(2900, 780, 310),
         { d: 20, cat: 'travel_booking', amt: -412, m: 'Brussels Airlines' }, { d: 1, cat: 'booking_cancelled', amt: 0, m: 'Brussels Airlines' }],
     },
+    { // Confirmed a work trip: expense help, no personal cross-sell.
+      id: 'tr4', name: 'Jan Hermans', age: 45, balance: 5200, consent: { ...ON },
+      events: [...base(4100, 950, 380),
+        { d: 9, cat: 'travel_booking', amt: -1240, m: 'Lufthansa' }, { d: 8, cat: 'travel_booking', amt: -690, m: 'Hotel Berlin' },
+        { d: 2, cat: 'travel_confirm', amt: 0, m: 'business', c: 'DE' }],
+    },
+    { // Flight delayed 4 hours, PNR shared; a payout from the airline has just arrived.
+      id: 'tr5', name: 'Sara Declercq', age: 33, balance: 3300, consent: { ...ON },
+      events: [...base(2800, 760, 300),
+        { d: 30, cat: 'travel_booking', amt: -230, m: 'Ryanair' }, { d: 30, cat: 'travel_pnr', amt: 0, m: 'X4J9LQ' },
+        { d: 3, cat: 'claim_payout', amt: 250, m: 'Ryanair' }],
+    },
   ],
   actions: {
     trip_upcoming: {
       id: 'trip-question', kind: 'care', priority: 4,
       product: { id: 'kbc-travel-insurance', name: 'KBC travel insurance' },
-      en: (f) => ({ title: f.merchant ? `Is your ${f.merchant} payment for a trip?` : 'Is your recent travel payment for a trip?', body: 'Are these payments related to a holiday, a temporary stay or a move? Tell us and we will prepare the right help: card settings, cover details and assistance contacts.', cta: 'Tell Kate' }),
+      en: (f) => ({ title: f.merchant ? `Is your ${f.merchant} payment for a trip?` : 'Is your recent travel payment for a trip?', body: 'Are these payments related to a holiday, a work trip, a temporary stay or a move? Tell us and we will prepare the right help: card settings, cover details and assistance contacts.', cta: 'Tell Kate' }),
       advisor: ['Flight/accommodation payment seen: ask what it is for, do not assume'],
     },
     travel: {
       id: 'travel-cover', kind: 'commercial', priority: 4,
       product: { id: 'kbc-travel-insurance', name: 'KBC travel insurance' },
       en: (f) => ({ title: `Enjoying your trip${f.country ? ` to ${country(f.country)}` : ''}?`,
-        body: f.confirmed ? 'Your card settings, payment info, travel cover details and assistance contacts are ready in one place.'
-          : 'Are these payments related to a holiday, a temporary stay or a move? If it is a holiday, check your travel cover, card limits and lost-card help in one tap.', cta: f.confirmed ? 'Open travel help' : 'Tell Kate' }),
+        body: f.confirmed ? 'Your card settings, payment info, travel cover details and assistance contacts are ready in one place. Tip: when a terminal offers to charge in euros, choose the local currency to avoid extra conversion markups. Check that your card can be used in your destination.'
+          : 'Are these payments related to a holiday, a work trip, a temporary stay or a move? If it is a holiday, check your travel cover, card limits and lost-card help in one tap.', cta: f.confirmed ? 'Open travel help' : 'Tell Kate' }),
       advisor: ['Customer is abroad now; contact only if they call', 'Travel cover on request'],
     },
     temporary_stay: {
       id: 'temporary-stay', kind: 'commercial', priority: 5,
       product: { id: 'kbc-travel-insurance', name: 'KBC travel insurance: long-stay cover check' },
       en: (f) => ({ title: f.months ? `You confirmed a ${f.months}-month stay${f.country ? ` in ${country(f.country)}` : ''}` : 'You confirmed a temporary stay abroad',
-        body: 'Want to check whether your current travel cover applies for the full period? Standard trip cover often has a maximum duration. We can also set up a longer-term spending plan.', cta: 'Check my cover' }),
+        body: `Want to check whether your current travel cover applies for the full period? Standard trip cover often has a maximum duration, and many policies cap cover at around 120 consecutive days.${f.longStay ? ' Your planned stay is longer than that, so it is worth checking.' : ''} We can also set up a longer-term spending plan, and a foreign-currency account may be worth a look.`, cta: 'Check my cover' }),
       advisor: ['Customer confirmed a temporary stay: check the cover duration, do not assume holiday insurance fits', 'Offer a longer-term spending plan'],
     },
     travel_disruption: {
       id: 'travel-disruption', kind: 'care', priority: 6,
       product: { id: 'kbc-travel-assistance', name: 'KBC travel assistance & claims' },
       en: (f) => f.booking
-        ? ({ title: `Your ${f.booking} booking was cancelled`, body: 'We prepared your booking details so you can review rebooking and refund options. Whether you qualify for a refund or compensation depends on the circumstances, and an airline request is separate from an insurance claim. Nothing is sent until you approve it.', cta: 'Review prefilled request' })
+        ? ({ title: f.delayHours ? `Your ${f.booking} flight was delayed by ${f.delayHours} hours` : `Your ${f.booking} booking was cancelled`, body: `${f.delayHours >= 3 ? 'For a delay of this length, you may want to review whether a statutory claim is possible. ' : ''}${f.delayHours >= 2 ? 'Depending on your card and cover, help with meals or rebooking costs may be available. ' : ''}We prepared your booking details so you can review rebooking and refund options. Whether you qualify for a refund or compensation depends on the circumstances, and an airline request is separate from an insurance claim. Nothing is sent until you approve it.`, cta: 'Review prefilled request' })
         : ({ title: 'Trouble with your trip?', body: `We noticed an unexpected ${eur(f.cost)} travel cost. Start a claim and reach assistance right away. Keep your receipts.`, cta: 'Start a claim' }),
       advisor: ['Possible travel disruption: offer claim help', 'Airline request and insurance claim are separate processes; promise no compensation', 'Do not sell; assist'],
+    },
+    business_trip: {
+      id: 'business-trip', kind: 'care', priority: 4,
+      product: { id: 'kbc-business-expenses', name: 'KBC expense tagging & receipt export' },
+      en: (f) => ({ title: `Work trip${f.country ? ` to ${country(f.country)}` : ''}: expenses ready`, body: `${f.cost ? `Your ${eur(f.cost)} booking${f.merchant ? ` with ${f.merchant}` : ''} can be tagged as a business expense, with the VAT details and a receipt export for your expense report. ` : ''}Check whether your corporate card or employer already covers travel insurance before buying anything extra.`, cta: 'Tag as business expense' }),
+      advisor: ['Customer confirmed a work trip: no personal insurance cross-sell', 'Expense tagging and receipt export; check corporate card cover'],
+    },
+    claim_settled: {
+      id: 'claim-settled', kind: 'care', priority: 5,
+      product: { id: 'kbc-travel-assistance', name: 'KBC travel assistance & claims' },
+      en: (f) => ({ title: `${eur(f.amount)} from ${f.carrier} arrived`, body: 'A payment from this airline reached your current account. If it is the payout for your travel claim, you can mark the claim as settled.', cta: 'Mark claim as settled' }),
+      advisor: ['Incoming payment from a carrier: ask whether it settles a claim'],
     },
     relocation: {
       id: 'moving-abroad', kind: 'commercial', priority: 4,
       product: { id: 'kbc-international', name: 'KBC international banking & address change' },
       en: (f) => ({ title: f.confirmed ? `Your move${f.country ? ` to ${country(f.country)}` : ''}: checklist ready` : `Looks like you moved${f.country ? ` to ${country(f.country)}` : ' abroad'}`,
-        body: f.confirmed ? 'Update your address and details, review your insurance (holiday cover does not cover a move) and adapt your recurring expenses.'
-          : 'Are these payments related to a holiday, a temporary stay or a move? If you moved: update your address, set up cheap international transfers and review your home and health cover.', cta: f.confirmed ? 'Open my checklist' : 'Tell Kate' }),
+        body: f.confirmed ? `Update your address and details, review your insurance (holiday cover does not cover a move) and adapt your recurring expenses.${f.bills && f.bills.length ? ` We found ${f.bills.length} recurring payments at home (${f.bills.join(', ')}) and can draft pause or cancellation requests for you to review.` : ''} The KBC expat desk can help with your accounts.`
+          : 'Are these payments related to a holiday, a work trip, a temporary stay or a move? If you moved: update your address, set up cheap international transfers and review your home and health cover.', cta: f.confirmed ? 'Open my checklist' : 'Tell Kate' }),
       advisor: ['Likely relocation abroad: confirm with customer', 'Address change, international transfers, insurance review (ordinary holiday cover may not fit)'],
     },
   },
