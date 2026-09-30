@@ -26,7 +26,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* ---------- top bar ---------- */
-.topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+.topbar { position: sticky; top: 0; z-index: 40; display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand-name { font-weight: 600; font-size: 18px; }
@@ -98,7 +98,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* ---------- Kate action cards ---------- */
 .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; gap: 12px;
-  max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; padding: 16px; pointer-events: none; background: linear-gradient(to top, rgba(45, 55, 72, .10), rgba(45, 55, 72, 0)); }
+  max-height: calc(100vh - 76px); overflow-y: auto; overscroll-behavior: contain; padding: 16px; pointer-events: none; background: linear-gradient(to top, rgba(45, 55, 72, .10), rgba(45, 55, 72, 0)); }
 .sheet:empty { background: none; }
 .k-card { pointer-events: auto; width: 100%; max-width: 448px; display: flex; flex-direction: column; background: var(--surface); border-radius: var(--radius);
   box-shadow: var(--shadow); padding: 24px; transition: transform .55s cubic-bezier(.2, .85, .25, 1), opacity .45s ease; transform: translateY(0); opacity: 1; }
@@ -208,7 +208,7 @@ body.device .topbar { position: static; flex: none; border-top: 0; padding-top: 
 body.device #screens { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
 body.device #screens::-webkit-scrollbar { display: none; }
 body.device .screen { padding-bottom: 140px; }
-body.device .sheet { position: absolute; max-height: 94%; }
+body.device .sheet { position: absolute; max-height: calc(100% - 126px); }
 body.device .toast { position: absolute; top: 110px; }
 body.device .drawer { position: absolute; }
 body.device .drawer-body { max-width: 100%; }

@@ -156,6 +156,8 @@
       hiddenAll = true; sheet.clear();
     } else if (e.key.toLowerCase() === 'p') {
       setPresenter(!presenter);
+    } else if (e.key.toLowerCase() === 's') {
+      openDrawer();
     } else if (e.key.toLowerCase() === 'r') {
       hiddenAll = false; snoozed.clear(); loadCards();
     }
