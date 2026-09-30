@@ -3,6 +3,9 @@
 // Triggers: overview (2+ subscriptions), price hike, newly found subscription, annual renewal approaching,
 // charge after the customer marked a subscription as cancelled.
 // Customer-supplied confirmations are plain events: { cat: 'subscription_cancelled', m, d, amt: 0 }.
+// Trial protection is opt-in (prefs.trialGuard, or a 'subscription_guard' event). Customer/merchant-supplied events:
+//   subscription_trial (supported trial started), subscription_blocked (first paid charge held; amt = price, 0 if unknown),
+//   subscription_enabled (customer allows the charge; renewals then proceed), subscription_kept (customer keeps it).
 // Transactions cannot reveal whether a service is used, or when an uncharged trial ends: trials need customer input.
 const { eur, recurring } = require('./util');
 
@@ -15,15 +18,25 @@ const plural = (n, one, many) => (n === 1 ? one : many);
 
 module.exports = {
   name: 'subscriptions',
-  eventCats: ['subscription_annual', 'subscription_cancelled'],
+  eventCats: ['subscription_annual', 'subscription_cancelled', 'subscription_trial', 'subscription_blocked',
+    'subscription_enabled', 'subscription_kept', 'subscription_guard'],
   derive(c) {
     const items = recurring(c.events, 'subscription').filter((x) => x.monthly > 0); // credits are not charges
     const last = new Map(); // merchant -> two latest charges
     const cancelled = new Map();
     const annual = [];
+    const trial = new Map(); const blocked = new Map(); const enabled = new Map(); const kept = new Map();
+    let guard = !!(c.prefs && c.prefs.trialGuard);
+    const latest = (map, e) => { if (!(map.get(e.m) <= e.d)) map.set(e.m, e.d); }; // keep the most recent marker
     for (const e of c.events) {
+      if (!e.cat.startsWith('subscription')) continue;
+      if (e.cat === 'subscription_guard') { guard = true; continue; }
       if (!e.m) continue;
-      if (e.cat === 'subscription' && e.amt < 0) {
+      if (e.cat === 'subscription_trial') latest(trial, e);
+      else if (e.cat === 'subscription_blocked') { if (!(blocked.get(e.m) && blocked.get(e.m).d <= e.d)) blocked.set(e.m, { d: e.d, amount: Math.abs(e.amt) }); }
+      else if (e.cat === 'subscription_enabled') latest(enabled, e);
+      else if (e.cat === 'subscription_kept') latest(kept, e);
+      else if (e.cat === 'subscription' && e.amt < 0) {
         let r = last.get(e.m);
         if (!r) last.set(e.m, (r = { d1: 1e9, a1: 0, d2: 1e9, a2: 0, n: 0, first: 0 }));
         r.n++;
@@ -40,14 +53,21 @@ module.exports = {
     for (const x of items) {
       const r = last.get(x.m);
       if (cancelled.has(x.m)) continue;
-      if (r.a2 > 0 && r.a1 >= r.a2 * 1.05 && r.d1 <= 35) hikes.push({ m: x.m, from: r.a2, to: r.a1, yearly: Math.round((r.a1 - r.a2) * 12 * 100) / 100 });
+      if (r.a2 > 0 && r.a1 >= r.a2 * 1.05 && r.d1 <= 35 && !(kept.get(x.m) <= r.d1)) hikes.push({ m: x.m, from: r.a2, to: r.a1, yearly: Math.round((r.a1 - r.a2) * 12 * 100) / 100 });
       if (r.n === 3 && r.first <= 100) fresh.push({ m: x.m, amount: r.a1 });
     }
     for (const [m, cd] of cancelled) {
       const r = last.get(m);
       if (r && r.d1 < cd) chargedAfterCancel.push({ m, amount: r.a1, daysAgo: r.d1, cancelledDaysAgo: cd });
     }
-    return { items, hikes, fresh, chargedAfterCancel, annual };
+    const heldTrials = [];
+    if (guard) {
+      for (const [m, b] of blocked) {
+        if (trial.get(m) >= b.d && !(enabled.get(m) <= b.d) && !cancelled.has(m)) heldTrials.push({ m, amount: b.amount, daysAgo: b.d });
+      }
+    }
+    for (const a of annual) a.kept = kept.get(a.m) <= 30;
+    return { items, hikes, fresh, chargedAfterCancel, annual, heldTrials };
   },
   detect(s) {
     const out = [];
@@ -84,7 +104,14 @@ module.exports = {
         evidence: [`you marked ${c.m} as cancelled ${c.cancelledDaysAgo} days ago`, `${c.m} charged ${money(c.amount)} ${c.daysAgo} days ago, after that`],
         facts: { m: c.m, amount: c.amount, daysAgo: c.daysAgo, cancelledDaysAgo: c.cancelledDaysAgo } });
     }
-    const up = s.annual.filter((a) => a.inDays >= 0 && a.inDays <= 30).sort((a, b) => a.inDays - b.inDays)[0];
+    if (s.heldTrials.length) {
+      const h = s.heldTrials[0];
+      out.push({ id: 'subscription_trial_blocked', confidence: 0.95,
+        evidence: [`you turned on trial protection`, `${h.m} is a supported free trial`,
+          `its first paid charge${h.amount ? ` (${money(h.amount)})` : ''} was held ${h.daysAgo} days ago and has not been paid`],
+        facts: { m: h.m, amount: h.amount, daysAgo: h.daysAgo } });
+    }
+    const up = s.annual.filter((a) => a.inDays >= 0 && a.inDays <= 30 && !a.kept).sort((a, b) => a.inDays - b.inDays)[0];
     if (up) {
       out.push({ id: 'subscription_annual', confidence: 0.7,
         evidence: [`${up.m} was charged ${money(up.amount)} once, about a year ago`, `it probably renews in ~${up.inDays} days`],
@@ -117,6 +144,12 @@ module.exports = {
         body: `You marked it as cancelled ${f.cancelledDaysAgo} days ago, but a payment followed ${f.daysAgo} days ago. The cancellation may not have gone through. You can follow up with the merchant; blocking future payments alone does not end the contract.`, cta: 'Follow up cancellation' }),
       advisor: ['Charge after customer-reported cancellation', 'Help follow up with merchant; distinguish payment blocking from cancelling'],
     },
+    subscription_trial_blocked: {
+      id: 'subscription-trial-blocked', kind: 'care', priority: 6, product: PRODUCT,
+      en: (f) => ({ title: `${f.m}: first paid payment held`,
+        body: `Your free trial ended and ${f.m} tried to charge${f.amount ? ` ${money(f.amount)}` : ''}. We held it because trial protection is on. Enable the payment to continue, or get help cancelling. Holding a payment does not cancel the contract.`, cta: 'Enable payments' }),
+      advisor: ['Trial payment held by customer-activated trial protection', 'Ask whether to enable it or help cancel; holding a payment is not cancelling'],
+    },
     subscription_annual: {
       id: 'subscription-annual', kind: 'care', priority: 3, product: PRODUCT,
       en: (f) => ({ title: `${f.m} probably renews in about ${f.inDays} days`,
@@ -147,6 +180,17 @@ module.exports = {
         { d: 350, cat: 'subscription_annual', amt: -89, m: 'Photo cloud plan' },
       ],
     },
+    { // Opted in to trial protection: a supported trial's first paid charge was held.
+      id: 'sub3', name: 'Elise Hendrickx', age: 24, balance: 1900, prefs: { trialGuard: true },
+      consent: { personalization: true, transactionInsights: true, advisorInsights: true },
+      events: [
+        ...[0, 1, 2, 3, 4, 5].map((i) => ({ d: i * 30 + 26, cat: 'salary', amt: 2300 })),
+        ...[0, 1, 2, 3, 4, 5].map((i) => ({ d: i * 30 + 3, cat: 'rent', amt: -700 })),
+        ...[0, 1, 2, 3, 4, 5].map((i) => ({ d: i * 30 + 10, cat: 'groceries', amt: -260 })),
+        { d: 16, cat: 'subscription_trial', amt: 0, m: 'LearnPlus' },
+        { d: 2, cat: 'subscription_blocked', amt: -12, m: 'LearnPlus' },
+      ],
+    },
   ],
 };
 
@@ -162,3 +206,29 @@ module.exports.simulateCancellation = (customer, merchant) => ({
   note: 'Stopping payments at the bank does not cancel the contract; you may still owe the merchant.',
   trackEvent: { cat: 'subscription_cancelled', m: merchant, d: 0, amt: 0 },
 });
+
+// Overview for the UI: detected subscriptions, cost, frequency, next expected charge, status, monthly total.
+// Computed on request only (not part of the batch path).
+module.exports.subscriptionOverview = (customer) => {
+  const s = module.exports.derive(customer);
+  const d1 = new Map();
+  for (const e of customer.events) {
+    if (e.cat === 'subscription' && e.amt < 0 && e.m && !(d1.get(e.m) <= e.d)) d1.set(e.m, e.d);
+  }
+  const cancelledNow = new Set(s.chargedAfterCancel.map((x) => x.m));
+  const hiked = new Set(s.hikes.map((x) => x.m));
+  const held = new Set(s.heldTrials.map((x) => x.m));
+  const items = s.items.map((x) => ({
+    m: x.m, amount: x.monthly, frequency: 'monthly', nextInDays: Math.max(0, 30 - d1.get(x.m)),
+    status: cancelledNow.has(x.m) ? 'charged after cancellation' : hiked.has(x.m) || x.increase >= 0.05 ? 'price increased' : 'active',
+  }));
+  for (const a of s.annual) items.push({ m: a.m, amount: a.amount, frequency: 'yearly', nextInDays: a.inDays, status: 'active' });
+  for (const h of s.heldTrials) items.push({ m: h.m, amount: h.amount, frequency: 'monthly', nextInDays: null, status: 'first payment held' });
+  const monthlyTotal = Math.round(items.reduce((t, x) => (held.has(x.m) ? t : t + (x.frequency === 'yearly' ? x.amount / 12 : x.amount)), 0) * 100) / 100;
+  return { items, monthlyTotal };
+};
+
+// SIMULATED payment controls (demo only): they only produce the customer's confirmation event.
+const control = (cat, label) => (customer, merchant) => ({ simulated: true, label, merchant, trackEvent: { cat, m: merchant, d: 0, amt: 0 } });
+module.exports.enablePayments = control('subscription_enabled', 'SIMULATION: payments enabled for this merchant; later renewals proceed normally');
+module.exports.keepSubscription = control('subscription_kept', 'SIMULATION: marked as kept; Kate stops flagging this change');

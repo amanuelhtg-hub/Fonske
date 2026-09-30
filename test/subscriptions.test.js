@@ -105,3 +105,56 @@ test('wording never promises refunds or returns', () => {
     assert.ok(!/refund|guarantee/i.test(`${t.title} ${t.body}`));
   }
 });
+
+test('trial protection: opted-in customer with a held first payment gets the blocked card', () => {
+  const r = decide(cust('sub3'));
+  assert.deepStrictEqual(ids(cust('sub3')), ['subscription_trial_blocked']);
+  const card = render(r, 'app', cust('sub3')).cards[0];
+  assert.match(card.title, /LearnPlus/);
+  assert.match(card.body, /does not cancel the contract/);
+  assert.ok(card.why.includes('you turned on trial protection'));
+});
+
+test('trial protection: needs opt-in, a supported trial, and stops once enabled or cancelled', () => {
+  const off = cust('sub3'); delete off.prefs;
+  assert.deepStrictEqual(ids(off), []);
+  off.events.push({ d: 30, cat: 'subscription_guard', amt: 0 }); // opt-in by event also works
+  assert.deepStrictEqual(ids(off), ['subscription_trial_blocked']);
+  const noTrial = cust('sub3');
+  noTrial.events = noTrial.events.filter((e) => e.cat !== 'subscription_trial');
+  assert.deepStrictEqual(ids(noTrial), []);
+  const en = cust('sub3');
+  en.events.push(sub.enablePayments(en, 'LearnPlus').trackEvent);
+  en.events.find((e) => e.cat === 'subscription_enabled').d = 1; // enabled after the held charge
+  assert.deepStrictEqual(ids(en), []);
+  const canc = cust('sub3');
+  canc.events.push({ d: 1, cat: 'subscription_cancelled', amt: 0, m: 'LearnPlus' });
+  assert.ok(!ids(canc).includes('subscription_trial_blocked'));
+});
+
+test('overdraft keeps the trial card (care); other personas never get it', () => {
+  const c = cust('sub3'); c.events.push({ d: 1, cat: 'overdraft_fee', amt: -12 });
+  assert.ok(decide(c).decisions.some((d) => d.moment === 'subscription_trial_blocked'));
+  for (const id of ['sub1', 'sub2', 'c1', 'c2']) assert.ok(!ids(cust(id)).includes('subscription_trial_blocked'));
+});
+
+test('keep marker silences the hike and annual cards', () => {
+  const c = cust('sub1'); c.events.push({ d: 1, cat: 'subscription_kept', amt: 0, m: 'StreamFlix' });
+  assert.deepStrictEqual(ids(c), []);
+  const a = cust('sub2'); a.events.push({ d: 1, cat: 'subscription_kept', amt: 0, m: 'Photo cloud plan' });
+  assert.ok(!ids(a).includes('subscription_annual'));
+});
+
+test('overview lists cost, frequency, next charge, status and monthly total', () => {
+  const o = sub.subscriptionOverview(cust('sub2'));
+  const sp = o.items.find((x) => x.m === 'Spotify');
+  assert.deepStrictEqual([sp.amount, sp.frequency, sp.nextInDays, sp.status], [11, 'monthly', 25, 'charged after cancellation']);
+  const cl = o.items.find((x) => x.m === 'Photo cloud plan');
+  assert.deepStrictEqual([cl.frequency, cl.nextInDays], ['yearly', 15]);
+  assert.strictEqual(o.monthlyTotal, Math.round((11 + 89 / 12) * 100) / 100);
+  assert.strictEqual(sub.subscriptionOverview(cust('sub1')).items[0].status, 'price increased');
+  const held = sub.subscriptionOverview(cust('sub3'));
+  assert.strictEqual(held.items[0].status, 'first payment held');
+  assert.strictEqual(held.monthlyTotal, 0);
+  assert.deepStrictEqual(sub.subscriptionOverview({ ...cust('sub1'), events: [] }), { items: [], monthlyTotal: 0 });
+});
