@@ -5,6 +5,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { CUSTOMERS, ADVISORS } = require('./data');
 const { decide, render } = require('./engine');
+const { prepare } = require('./composer');
+require('./ai').install(); // no-op unless KATE_AI=on and Google Cloud env vars are set
 const { runBatch } = require('./batch');
 const { simulateCancellation } = require('./features/subscriptions');
 const { recurring } = require('./features/util');
@@ -25,6 +27,8 @@ const advisors = new Map(ADVISORS.map((a) => [a.id, a]));
 const dismissed = new Map(); // customerId -> Set(actionId)
 const streams = new Map(); // customerId -> Set(res) of live SSE connections
 const lastSig = new Map(); // customerId -> signature of last pushed decision
+const pushSeq = new Map(); // customerId -> latest publish number (drops stale pushes that finished warming late)
+const SECURE = process.env.SECURE_COOKIES === '1' ? '; Secure' : ''; // set when served over HTTPS (Cloud Run)
 
 // Re-decide for one customer and push to their open streams if anything changed.
 const signature = (r) => JSON.stringify([r.moments.map((m) => m.id), r.decisions.map((d) => [d.action.id, d.facts])]);
@@ -35,8 +39,13 @@ function publish(cust) {
   lastSig.set(cust.id, sig);
   const set = streams.get(cust.id);
   if (changed && set) {
-    const msg = `event: update\ndata: ${JSON.stringify(render(r, 'app', cust))}\n\n`;
-    for (const res of set) res.write(msg);
+    const seq = (pushSeq.get(cust.id) || 0) + 1;
+    pushSeq.set(cust.id, seq);
+    prepare(r.decisions).then(() => {
+      if (pushSeq.get(cust.id) !== seq) return;
+      const msg = `event: update\ndata: ${JSON.stringify(render(r, 'app', cust))}\n\n`;
+      for (const res of set) res.write(msg);
+    });
   }
   return changed;
 }
@@ -99,6 +108,16 @@ function readJson(req) {
   });
 }
 
+// Client address for the throttle. Behind Cloud Run (TRUST_PROXY=1) use the address the Google front end appended
+// to X-Forwarded-For, i.e. the LAST entry: earlier entries are client-supplied and could be spoofed to dodge the limit.
+const clientIp = (req) => {
+  if (process.env.TRUST_PROXY === '1') {
+    const parts = String(req.headers['x-forwarded-for'] || '').split(',').map((x) => x.trim()).filter(Boolean);
+    if (parts.length) return parts[parts.length - 1];
+  }
+  return req.socket.remoteAddress;
+};
+
 // crude per-IP login throttle: 10 attempts / minute
 const attempts = new Map();
 function throttled(ip) {
@@ -140,17 +159,17 @@ async function handle(req, res) {
       });
     }
     if (p === '/api/login' && req.method === 'POST') {
-      if (throttled(req.socket.remoteAddress)) return send(res, 429, { error: 'too many attempts' });
+      if (throttled(clientIp(req))) return send(res, 429, { error: 'too many attempts' });
       const b = await readJson(req);
       const role = customers.has(b.userId) ? 'customer' : advisors.has(b.userId) ? 'advisor' : null;
       if (!role || !safeEq(b.passcode ?? '', PASSCODE)) return send(res, 401, { error: 'invalid credentials' });
       const token = sign({ sub: b.userId, role, exp: Date.now() + SESSION_MS });
       return send(res, 200, { role, id: b.userId }, {
-        'Set-Cookie': `kate=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}`,
+        'Set-Cookie': `kate=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}${SECURE}`,
       });
     }
     if (p === '/api/logout' && req.method === 'POST') {
-      return send(res, 200, { ok: true }, { 'Set-Cookie': 'kate=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' });
+      return send(res, 200, { ok: true }, { 'Set-Cookie': `kate=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${SECURE}` });
     }
 
     const s = session(req);
@@ -168,6 +187,7 @@ async function handle(req, res) {
         const ch = url.searchParams.get('channel') || 'app';
         if (ch === 'advisor' || !CHANNELS.has(ch)) return send(res, 400, { error: 'bad channel' });
         const r = decide(me, { dismissed: dismissed.get(me.id) });
+        await prepare(r.decisions);
         return send(res, 200, render(r, ch, me));
       }
       if (p === '/api/me/stream' && req.method === 'GET') {

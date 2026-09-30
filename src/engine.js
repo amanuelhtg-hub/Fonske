@@ -85,7 +85,7 @@ function render(result, channel, customer) {
   const items = result.decisions.map((d) => {
     const t = compose(d.action, { moment: d.moment, evidence: d.why, facts: d.facts, firstName: first });
     const product = (d.facts && d.facts.product) || d.action.product || null;
-    return { actionId: d.action.id, moment: d.moment, confidence: d.confidence, why: d.why, title: t.title, body: t.body, cta: t.cta, product, facts: d.facts || {}, talkingPoints: d.action.advisor || [] };
+    return { actionId: d.action.id, moment: d.moment, confidence: d.confidence, why: d.why, title: t.title, body: t.body, cta: t.cta, aiWorded: t.aiWorded === true, product, facts: d.facts || {}, talkingPoints: d.action.advisor || [] };
   });
   if (channel === 'email') {
     const top = items[0];

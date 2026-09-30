@@ -13,5 +13,7 @@ const templateComposer = {
 let composer = templateComposer;
 const setComposer = (c) => { composer = c || templateComposer; };
 const compose = (...args) => composer.compose(...args);
+// Optional async warm-up (an AI composer fills its cache here). Never rejects; a no-op for templates.
+const prepare = async (decisions) => { try { if (composer.prepare) await composer.prepare(decisions); } catch { /* fall back to templates */ } };
 
-module.exports = { compose, setComposer, templateComposer };
+module.exports = { compose, prepare, setComposer, templateComposer };
