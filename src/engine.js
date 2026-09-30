@@ -45,22 +45,20 @@ function detect({ base, features }) {
 const GENERIC = {
   id: 'generic-tips', kind: 'care',
   en: () => ({ title: 'Welcome back', body: 'Personalised suggestions are switched off. You can turn them on in your privacy settings at any time.', cta: 'Privacy settings' }),
-  nl: () => ({ title: 'Welkom terug', body: 'Gepersonaliseerde suggesties staan uit. Je kan ze op elk moment inschakelen in je privacyinstellingen.', cta: 'Privacyinstellingen' }),
 };
 
 // ---- 4. Decision with guardrails ----------------------------------------------------------
 // state: { dismissed: Set<actionId> } is supplied by the caller (per customer).
 function decide(customer, state = {}) {
   const guardrails = [];
-  const lang = customer.lang === 'nl' ? 'nl' : 'en';
   const c = customer.consent;
   if (!c.personalization) {
     guardrails.push('Personalisation consent is off: no customer data was analysed');
-    return { customer: customer.id, lang, moments: [], decisions: [{ action: GENERIC, moment: null, confidence: 1, why: [], facts: {} }], guardrails };
+    return { customer: customer.id, moments: [], decisions: [{ action: GENERIC, moment: null, confidence: 1, why: [], facts: {} }], guardrails };
   }
   if (!c.transactionInsights) {
     guardrails.push('Transaction-insight consent is off: transactions were not analysed');
-    return { customer: customer.id, lang, moments: [], decisions: [], guardrails };
+    return { customer: customer.id, moments: [], decisions: [], guardrails };
   }
   const signals = deriveSignals(customer);
   const moments = detect(signals);
@@ -78,15 +76,14 @@ function decide(customer, state = {}) {
   if (kept.some((x) => x.moment === 'excess_cash' && !x.facts.riskComfort)) {
     guardrails.push('No risk profile on file: only a safe option is suggested, no investment advice');
   }
-  return { customer: customer.id, lang, moments, decisions: kept.slice(0, MAX_CARDS), guardrails };
+  return { customer: customer.id, moments, decisions: kept.slice(0, MAX_CARDS), guardrails };
 }
 
 // ---- 5. Same decision, adapted per channel ------------------------------------------------
 function render(result, channel, customer) {
   const first = customer.name.split(' ')[0];
-  const lang = result.lang;
   const items = result.decisions.map((d) => {
-    const t = compose(d.action, lang, { moment: d.moment, evidence: d.why, facts: d.facts, firstName: first });
+    const t = compose(d.action, { moment: d.moment, evidence: d.why, facts: d.facts, firstName: first });
     const product = (d.facts && d.facts.product) || d.action.product || null;
     return { actionId: d.action.id, moment: d.moment, confidence: d.confidence, why: d.why, title: t.title, body: t.body, cta: t.cta, product, facts: d.facts || {}, talkingPoints: d.action.advisor || [] };
   });
@@ -95,7 +92,7 @@ function render(result, channel, customer) {
     if (!top) return { channel, skipped: 'Nothing relevant to say right now. Silence is a feature.' };
     return {
       channel, subject: top.title, preheader: top.body.slice(0, 70),
-      text: `${lang === 'nl' ? 'Dag' : 'Hi'} ${first},\n\n${top.body}\n\n→ ${top.cta}\n\nKBC`,
+      text: `Hi ${first},\n\n${top.body}\n\n→ ${top.cta}\n\nKBC`,
     };
   }
   if (channel === 'advisor') {
@@ -106,7 +103,7 @@ function render(result, channel, customer) {
       note: 'Signals are hints, not facts. Ask; do not assume.',
     };
   }
-  return { channel: 'app', greeting: `${lang === 'nl' ? 'Dag' : 'Hi'} ${first}`, cards: items, guardrails: result.guardrails };
+  return { channel: 'app', greeting: `Hi ${first}`, cards: items, guardrails: result.guardrails };
 }
 
 module.exports = { deriveSignals, detect, decide, render, ACTIONS, THRESHOLD, MAX_CARDS };

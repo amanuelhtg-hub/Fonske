@@ -36,16 +36,13 @@ test('savings: upcoming annual renewal is reserved, not double counted', () => {
   assert.strictEqual(m.facts.planned, 620);
 });
 
-test('savings: suppressed in overdraft, and text exists in EN and NL', () => {
+test('savings: suppressed in overdraft, and the card explains the investment profile', () => {
   const c = cust('sav1');
   c.events.push({ d: 2, cat: 'overdraft_fee', amt: -12 });
   assert.strictEqual(decide(c).decisions.length, 0);
   const ok = cust('sav1');
-  ok.lang = 'nl';
   const card = render(decide(ok), 'app', ok).cards[0];
-  assert.ok(card.title.includes('€900') && card.body.includes('beleggersprofiel'));
-  const en = cust('sav1');
-  assert.ok(render(decide(en), 'app', en).cards[0].body.includes('investment profile'));
+  assert.ok(card.title.includes('€900') && card.body.includes('investment profile'));
 });
 
 test('savings: odd inputs do not fire or crash', () => {

@@ -76,18 +76,18 @@ module.exports = {
   eventCats: ['travel_confirm', 'travel_booking', 'booking_cancelled'],
   personas: [
     { // Booked flight + hotel, nothing abroad yet: Kate asks what the payments are for.
-      id: 'tr1', name: 'Lotte Peeters', age: 29, lang: 'nl', balance: 3100, consent: { ...ON },
+      id: 'tr1', name: 'Lotte Peeters', age: 29, balance: 3100, consent: { ...ON },
       events: [...base(2600, 720, 280),
         { d: 12, cat: 'travel_booking', amt: -286, m: 'Brussels Airlines' }, { d: 11, cat: 'travel_booking', amt: -540, m: 'Booking.com' }],
     },
     { // Confirmed a three-month stay in Portugal: coverage duration check.
-      id: 'tr2', name: 'Maarten Claes', age: 31, lang: 'en', balance: 4200, consent: { ...ON },
+      id: 'tr2', name: 'Maarten Claes', age: 31, balance: 4200, consent: { ...ON },
       events: [...base(3100, 850, 320),
         ...Array.from({ length: 12 }, (_, i) => ({ d: i * 3 + 1, cat: 'abroad', amt: -38, c: 'PT' })),
         { d: 4, cat: 'travel_confirm', amt: 3, m: 'stay', c: 'PT' }],
     },
     { // Fictional cancelled booking shared with Kate: prefilled request for review.
-      id: 'tr3', name: 'Emma Wouters', age: 37, lang: 'en', balance: 2500, consent: { ...ON },
+      id: 'tr3', name: 'Emma Wouters', age: 37, balance: 2500, consent: { ...ON },
       events: [...base(2900, 780, 310),
         { d: 20, cat: 'travel_booking', amt: -412, m: 'Brussels Airlines' }, { d: 1, cat: 'booking_cancelled', amt: 0, m: 'Brussels Airlines' }],
     },
@@ -97,7 +97,6 @@ module.exports = {
       id: 'trip-question', kind: 'care', priority: 4,
       product: { id: 'kbc-travel-insurance', name: 'KBC travel insurance' },
       en: (f) => ({ title: `Is your ${f.merchant} payment for a trip?`, body: 'Are these payments related to a holiday, a temporary stay or a move? Tell us and we will prepare the right help: card settings, cover details and assistance contacts.', cta: 'Tell Kate' }),
-      nl: (f) => ({ title: `Is je betaling aan ${f.merchant} voor een reis?`, body: 'Hebben deze betalingen te maken met een vakantie, een tijdelijk verblijf of een verhuis? Laat het ons weten en we bereiden de juiste hulp voor: kaartinstellingen, dekking en noodnummers.', cta: 'Vertel het aan Kate' }),
       advisor: ['Flight/accommodation payment seen: ask what it is for, do not assume'],
     },
     travel: {
@@ -106,9 +105,6 @@ module.exports = {
       en: (f) => ({ title: `Enjoying your trip${f.country ? ` to ${country(f.country)}` : ''}?`,
         body: f.confirmed ? 'Your card settings, payment info, travel cover details and assistance contacts are ready in one place.'
           : 'Are these payments related to a holiday, a temporary stay or a move? If it is a holiday, check your travel cover, card limits and lost-card help in one tap.', cta: f.confirmed ? 'Open travel help' : 'Tell Kate' }),
-      nl: (f) => ({ title: `Geniet je van je reis${f.country ? ` naar ${country(f.country)}` : ''}?`,
-        body: f.confirmed ? 'Je kaartinstellingen, betaalinfo, details over je reisverzekering en noodnummers staan klaar op één plek.'
-          : 'Hebben deze betalingen te maken met een vakantie, een tijdelijk verblijf of een verhuis? Bij een vakantie bekijk je reisverzekering, kaartlimieten en hulp bij verlies in één tik.', cta: f.confirmed ? 'Open reishulp' : 'Vertel het aan Kate' }),
       advisor: ['Customer is abroad now; contact only if they call', 'Travel cover on request'],
     },
     temporary_stay: {
@@ -116,8 +112,6 @@ module.exports = {
       product: { id: 'kbc-travel-insurance', name: 'KBC travel insurance: long-stay cover check' },
       en: (f) => ({ title: f.months ? `You confirmed a ${f.months}-month stay${f.country ? ` in ${country(f.country)}` : ''}` : 'You confirmed a temporary stay abroad',
         body: 'Want to check whether your current travel cover applies for the full period? Standard trip cover often has a maximum duration. We can also set up a longer-term spending plan.', cta: 'Check my cover' }),
-      nl: (f) => ({ title: f.months ? `Je bevestigde een verblijf van ${f.months} maanden${f.country ? ` in ${country(f.country)}` : ''}` : 'Je bevestigde een tijdelijk verblijf in het buitenland',
-        body: 'Wil je nakijken of je huidige reisverzekering de volledige periode dekt? Een standaard reisverzekering heeft vaak een maximumduur. We stellen ook graag een uitgavenplan op langere termijn op.', cta: 'Controleer mijn dekking' }),
       advisor: ['Customer confirmed a temporary stay: check the cover duration, do not assume holiday insurance fits', 'Offer a longer-term spending plan'],
     },
     travel_disruption: {
@@ -126,9 +120,6 @@ module.exports = {
       en: (f) => f.booking
         ? ({ title: `Your ${f.booking} booking was cancelled`, body: 'We prepared your booking details so you can review rebooking and refund options. Whether you qualify for a refund or compensation depends on the circumstances, and an airline request is separate from an insurance claim. Nothing is sent until you approve it.', cta: 'Review prefilled request' })
         : ({ title: 'Trouble with your trip?', body: `We noticed an unexpected ${eur(f.cost)} travel cost. Start a claim and reach assistance right away. Keep your receipts.`, cta: 'Start a claim' }),
-      nl: (f) => f.booking
-        ? ({ title: `Je boeking bij ${f.booking} werd geannuleerd`, body: 'We hebben je boekingsgegevens klaargezet zodat je de opties voor omboeking en terugbetaling kan bekijken. Of je recht hebt op terugbetaling of compensatie hangt af van de omstandigheden, en een aanvraag bij de luchtvaartmaatschappij staat los van een verzekeringsclaim. Er wordt niets verstuurd zonder jouw goedkeuring.', cta: 'Bekijk ingevulde aanvraag' })
-        : ({ title: 'Problemen met je reis?', body: `We zagen een onverwachte reiskost van ${eur(f.cost)}. Start meteen een schadeclaim en bereik bijstand. Bewaar je bonnetjes.`, cta: 'Start een claim' }),
       advisor: ['Possible travel disruption: offer claim help', 'Airline request and insurance claim are separate processes; promise no compensation', 'Do not sell; assist'],
     },
     relocation: {
@@ -137,9 +128,6 @@ module.exports = {
       en: (f) => ({ title: f.confirmed ? `Your move${f.country ? ` to ${country(f.country)}` : ''}: checklist ready` : `Looks like you moved${f.country ? ` to ${country(f.country)}` : ' abroad'}`,
         body: f.confirmed ? 'Update your address and details, review your insurance (holiday cover does not cover a move) and adapt your recurring expenses.'
           : 'Are these payments related to a holiday, a temporary stay or a move? If you moved: update your address, set up cheap international transfers and review your home and health cover.', cta: f.confirmed ? 'Open my checklist' : 'Tell Kate' }),
-      nl: (f) => ({ title: f.confirmed ? `Je verhuis${f.country ? ` naar ${country(f.country)}` : ''}: checklist klaar` : `Het lijkt erop dat je verhuisd bent${f.country ? ` naar ${country(f.country)}` : ''}`,
-        body: f.confirmed ? 'Pas je adres en gegevens aan, herbekijk je verzekeringen (een reisverzekering dekt geen verhuis) en stem je terugkerende uitgaven af.'
-          : 'Hebben deze betalingen te maken met een vakantie, een tijdelijk verblijf of een verhuis? Bij een verhuis: pas je adres aan, stel goedkope internationale overschrijvingen in en herbekijk je woon- en ziekteverzekering.', cta: f.confirmed ? 'Open mijn checklist' : 'Vertel het aan Kate' }),
       advisor: ['Likely relocation abroad: confirm with customer', 'Address change, international transfers, insurance review (ordinary holiday cover may not fit)'],
     },
   },
