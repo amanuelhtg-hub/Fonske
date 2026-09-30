@@ -77,6 +77,7 @@
     const route = (text) => () => { result.textContent = text; };
     if (f.savingsTransfer) {
       const t = f.savingsTransfer;
+      const limit = el('input', { type: 'number', min: '1', step: '50', value: String(Math.min(t.amount, 500)) });
       panel.append(el('p', { className: 'sim', textContent: 'SIMULATION: only moves money between your own accounts, only after you approve.' }),
         row('Prepared transfer', `${money(t.amount)} from ${t.from} to ${t.to}`),
         btn(`Approve ${money(t.amount)} transfer`, async () => {
@@ -86,11 +87,13 @@
         }), ' ',
         f.automation.authorized
           ? btn('Turn off automatic saving', async () => { await api('/api/me/preferences', 'PUT', { autoSave: null }); notify('Automatic saving turned off.'); refresh(); }, 'ghost')
-          : btn(`Allow automatic saving up to ${money(f.automation.maxMonthly)}/month`, async () => {
-            await api('/api/me/preferences', 'PUT', { autoSave: { max: f.automation.maxMonthly } });
-            notify(`Automatic saving allowed up to ${money(f.automation.maxMonthly)}/month. You can turn it off any time.`);
+          : el('span', {}, el('label', {}, 'Automatic saving limit per month: ', limit), btn('Allow automatic saving', async () => {
+            const max = Number(limit.value);
+            if (!(max > 0)) { notify('Enter a monthly limit above 0.'); return; }
+            await api('/api/me/preferences', 'PUT', { autoSave: { max } });
+            notify(`Automatic saving allowed up to ${money(max)}/month. You can turn it off any time.`);
             refresh();
-          }, 'ghost'));
+          }, 'ghost')));
     }
     panel.append(el('p', { textContent: 'How we got there (correct anything that is off):' }),
       row('Balance', money(f.balance)), row('Bills per month', money(f.bills)), row('Everyday spending per month', money(f.everyday)),
@@ -155,16 +158,15 @@
       btn('Dismiss', () => panel.remove(), 'ghost'), result);
   }
 
-  // ---- subscriptions: a free trial ended and the first paid charge was held ------------------------
-  function trialBlocked(card, panel) {
+  // ---- subscriptions: a trial seems to have started: offer a reminder (Kate never blocks a charge) ----
+  function trialStarted(card, panel) {
     const f = card.facts;
-    panel.append(row('Subscription', f.m), row('First paid charge (held)', money(f.amount)),
-      el('p', { className: 'muted', textContent: 'Holding a payment does not cancel the contract.' }),
-      btn('Enable payments', async () => {
-        await api('/api/me/events', 'POST', { cat: 'subscription_enabled', m: f.m, amt: 0 });
-        notify(`Payments to ${f.m} enabled. Renewals will now go through.`);
-        refresh();
-      }), ' ', btn('Help me cancel', () => { panel.replaceChildren(); cancel(card, panel); }, 'ghost'), ' ', close(panel));
+    const mark = (cat, msg) => async () => { await api('/api/me/events', 'POST', { cat, m: f.m, amt: 0 }); notify(msg); refresh(); };
+    panel.append(row('Trial at', f.m), row('First full payment', `in about ${f.expectedInDays} days (estimate)`),
+      el('p', { className: 'muted', textContent: `Kate can remind you ${f.reminderInDays} days from now so you can cancel in time. Nothing is blocked.` }),
+      btn('Set a reminder', mark('subscription_reminder', `Reminder set for ${f.m}. Kate will nudge you before the first full payment.`)), ' ',
+      btn('I will keep it', mark('subscription_kept', `Noted: you are keeping ${f.m}.`), 'ghost'), ' ',
+      btn('Help me cancel', () => { panel.replaceChildren(); cancel(card, panel); }, 'ghost'), ' ', close(panel));
   }
 
   // ---- travel: a work trip: expense tagging (simulated) --------------------------------------------
@@ -203,7 +205,7 @@
     'review-subscriptions': SUBS, 'subscription-hike': SUBS, 'subscription-cancelled-charge': followUp, 'subscription-annual': SUBS,
     'household-bill-shortfall': (c, p) => (c.facts.transfer ? transfer(c, p) : info(c, p)),
     'excess-cash': savings,
-    'subscription-trial-blocked': trialBlocked,
+    'subscription-trial-started': trialStarted,
     'business-trip': businessTrip,
     'claim-settled': claimSettled,
     'subscription-new': newSubscription,

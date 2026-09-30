@@ -98,11 +98,11 @@ test('automatic saving: limited opt-in that can be turned off', async () => {
   assert.strictEqual(off.autoSave, null);
 });
 
-test('trial held: enabling the payment and marking a claim settled go through the normal paths', async () => {
+test('trial reminder and marking a claim settled go through the normal paths', async () => {
   const u = await as('sub3');
-  assert.ok((await cards(u)).some((x) => x.actionId === 'subscription-trial-blocked'));
-  assert.strictEqual((await u.call('/api/me/events', 'POST', { cat: 'subscription_enabled', m: 'LearnPlus', amt: 0 })).status, 202);
-  assert.ok(!(await cards(u)).some((x) => x.actionId === 'subscription-trial-blocked'));
+  assert.ok((await cards(u)).some((x) => x.actionId === 'subscription-trial-started'));
+  assert.strictEqual((await u.call('/api/me/events', 'POST', { cat: 'subscription_reminder', m: 'LearnPlus', amt: 0 })).status, 202);
+  assert.ok(!(await cards(u)).some((x) => x.actionId === 'subscription-trial-started'));
   const t = await as('tr5');
   assert.strictEqual((await t.call('/api/me/dismiss', 'POST', { actionId: 'claim-settled' })).status, 200);
   assert.ok(!(await cards(t)).some((x) => x.actionId === 'claim-settled'));
