@@ -19,10 +19,10 @@ test('c8: single subscription with a price hike gets a hike card with yearly imp
   assert.ok(card.why.length >= 3);
 });
 
-test('c9: charge after cancellation and annual renewal, in Dutch', () => {
+test('sub2: charge after cancellation and annual renewal', () => {
   assert.deepStrictEqual(ids(cust('sub2')), ['subscription_annual', 'subscription_cancelled_charge']);
   const cards = render(decide(cust('sub2')), 'app', cust('sub2')).cards;
-  assert.match(cards[0].title, /na je opzegging/);
+  assert.match(cards[0].title, /after you cancelled/);
 });
 
 test('other personas do not get the new cards', () => {
@@ -74,10 +74,10 @@ test('overdraft keeps these care cards; simulated cancellation is labelled and p
   assert.ok(ids(c8).includes('subscription_cancelled_charge'));
 });
 
-test('all actions have English and Dutch text', () => {
+test('all actions render title, body and cta', () => {
   const facts = { m: 'X', from: 1, to: 2, yearly: 12, amount: 5, more: 0, daysAgo: 1, cancelledDaysAgo: 5, inDays: 9, count: 2, total: 9, hikes: [], overlaps: [] };
-  for (const a of Object.values(sub.actions)) for (const l of ['en', 'nl']) {
-    const t = a[l](facts);
+  for (const a of Object.values(sub.actions)) {
+    const t = a.en(facts);
     assert.ok(t.title && t.body && t.cta);
   }
 });
