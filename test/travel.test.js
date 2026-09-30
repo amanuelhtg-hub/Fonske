@@ -63,3 +63,18 @@ test('every travel action renders title, body and cta', () => {
     }
   }
 });
+
+test('odd inputs: refunds, missing merchants and empty events do not misfire', () => {
+  const c = cust('tr1');
+  const tv = (x) => ids(x).filter((m) => /travel|trip|stay|relocation/.test(m));
+  assert.deepStrictEqual(tv({ ...c, events: [] }), []);
+  c.events.forEach((e) => { if (e.cat === 'travel_booking') e.amt = Math.abs(e.amt); });
+  assert.deepStrictEqual(tv(c), []);
+  const n = cust('tr1');
+  n.events.forEach((e) => { delete e.m; });
+  const card = render(decide(n), 'app', n).cards[0];
+  assert.ok(!/undefined/.test(card.title + card.body));
+  const x = cust('tr3');
+  delete x.events.find((e) => e.cat === 'booking_cancelled').m;
+  assert.ok(decide(x).moments.find((m) => m.id === 'travel_disruption').facts.booking);
+});

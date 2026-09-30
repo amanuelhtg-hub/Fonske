@@ -18,15 +18,15 @@ module.exports = {
     let confirm = null, booking = null, cancelled = null;
     for (const e of ev) {
       if (e.cat === 'travel_confirm' && e.d < 120 && (!confirm || e.d < confirm.d)) confirm = e;
-      else if (e.cat === 'travel_booking' && e.d < 60 && (!booking || e.d < booking.d)) booking = e;
+      else if (e.cat === 'travel_booking' && e.amt < 0 && e.d < 60 && (!booking || e.d < booking.d)) booking = e;
       else if (e.cat === 'booking_cancelled' && e.d < 14 && (!cancelled || e.d < cancelled.d)) cancelled = e;
     }
     return {
       situation: confirm ? confirm.m : null,
       months: confirm && confirm.amt ? Math.round(confirm.amt) : null,
       confirmCountry: confirm ? confirm.c || null : null,
-      booking: booking ? { m: booking.m, cost: -booking.amt } : null,
-      cancelled: cancelled ? cancelled.m : null,
+      booking: booking ? { m: booking.m || null, cost: -booking.amt } : null,
+      cancelled: cancelled ? cancelled.m || 'travel provider' : null,
       abroadDays: new Set(abroad.map((e) => e.d)).size,
       abroadRecent: -sum(ev, (e) => e.cat === 'abroad' && e.d < 14),
       country: last ? last.c : null,
@@ -61,7 +61,7 @@ module.exports = {
         evidence: [`${eur(s.abroadRecent)} spent abroad in the last 14 days`, 'spending at home continues: looks like a trip, not a move'] });
     } else if (s.booking && s.abroadDays === 0 && !s.cancelled) {
       out.push({ id: 'trip_upcoming', confidence: 0.75, facts: { merchant: s.booking.m, cost: s.booking.cost },
-        evidence: [`payment of ${eur(s.booking.cost)} to ${s.booking.m} (flight or accommodation)`, 'no spending abroad yet: a trip may be coming up'] });
+        evidence: [`payment of ${eur(s.booking.cost)}${s.booking.m ? ` to ${s.booking.m}` : ''} (flight or accommodation)`, 'no spending abroad yet: a trip may be coming up'] });
     }
     // 3. Disruption: a shared booking that was cancelled beats a cost-only hint.
     if (s.cancelled) {
@@ -96,7 +96,7 @@ module.exports = {
     trip_upcoming: {
       id: 'trip-question', kind: 'care', priority: 4,
       product: { id: 'kbc-travel-insurance', name: 'KBC travel insurance' },
-      en: (f) => ({ title: `Is your ${f.merchant} payment for a trip?`, body: 'Are these payments related to a holiday, a temporary stay or a move? Tell us and we will prepare the right help: card settings, cover details and assistance contacts.', cta: 'Tell Kate' }),
+      en: (f) => ({ title: f.merchant ? `Is your ${f.merchant} payment for a trip?` : 'Is your recent travel payment for a trip?', body: 'Are these payments related to a holiday, a temporary stay or a move? Tell us and we will prepare the right help: card settings, cover details and assistance contacts.', cta: 'Tell Kate' }),
       advisor: ['Flight/accommodation payment seen: ask what it is for, do not assume'],
     },
     travel: {
