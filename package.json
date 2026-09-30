@@ -1,0 +1,13 @@
+{
+  "name": "kate",
+  "version": "1.0.0",
+  "description": "Scalable, explainable, consent-first personalization for a bank (Tectonic Hackathon, KBC challenge)",
+  "license": "MIT",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test",
+    "bench": "node src/batch.js 2300000"
+  }
+}
