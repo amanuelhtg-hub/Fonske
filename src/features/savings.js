@@ -73,7 +73,7 @@ module.exports = {
   },
   personas: [
     { // Illustrative surplus: €4,200 - €1,200 bills - €600 everyday - €1,500 chosen reserve = ~€900.
-      id: 'c8', name: 'Emma Jacobs', age: 35, lang: 'en', balance: 4200,
+      id: 'sav1', name: 'Emma Jacobs', age: 35, lang: 'en', balance: 4200,
       consent: { personalization: true, transactionInsights: true, advisorInsights: true },
       prefs: { reserve: 1500 },
       events: [
@@ -82,7 +82,7 @@ module.exports = {
         ...Array.from({ length: 6 }, (_, i) => ({ d: i * 30 + 10, cat: 'groceries', amt: -600 })),
       ] },
     { // One large incoming payment lifted the balance: weaker evidence than a steadily high balance.
-      id: 'c9', name: 'Pieter De Smet', age: 47, lang: 'nl', balance: 9000,
+      id: 'sav2', name: 'Pieter De Smet', age: 47, lang: 'nl', balance: 9000,
       consent: { personalization: true, transactionInsights: true, advisorInsights: true },
       events: [
         ...Array.from({ length: 6 }, (_, i) => ({ d: i * 30 + 26, cat: 'salary', amt: 2500 })),

@@ -8,7 +8,7 @@ const cust = (id) => structuredClone(CUSTOMERS.find((c) => c.id === id));
 const excess = (c) => decide(c).moments.find((m) => m.id === 'excess_cash');
 
 test('savings: illustrative surplus is 900 with a chosen reserve', () => {
-  const m = excess(cust('c8'));
+  const m = excess(cust('sav1'));
   assert.ok(m);
   assert.strictEqual(m.facts.excess, 900);
   assert.strictEqual(m.facts.reserve, 1500);
@@ -18,13 +18,13 @@ test('savings: illustrative surplus is 900 with a chosen reserve', () => {
 });
 
 test('savings: customer can correct the reserve', () => {
-  const c = cust('c8');
+  const c = cust('sav1');
   c.prefs.reserve = 3500;
   assert.strictEqual(excess(c), undefined);
 });
 
 test('savings: a single large incoming payment is not enough', () => {
-  assert.strictEqual(excess(cust('c9')), undefined);
+  assert.strictEqual(excess(cust('sav2')), undefined);
 });
 
 test('savings: does not fire for customers without surplus', () => {
@@ -37,13 +37,13 @@ test('savings: upcoming annual renewal is reserved, not double counted', () => {
 });
 
 test('savings: suppressed in overdraft, and text exists in EN and NL', () => {
-  const c = cust('c8');
+  const c = cust('sav1');
   c.events.push({ d: 2, cat: 'overdraft_fee', amt: -12 });
   assert.strictEqual(decide(c).decisions.length, 0);
-  const ok = cust('c8');
+  const ok = cust('sav1');
   ok.lang = 'nl';
   const card = render(decide(ok), 'app', ok).cards[0];
   assert.ok(card.title.includes('€900') && card.body.includes('beleggersprofiel'));
-  const en = cust('c8');
+  const en = cust('sav1');
   assert.ok(render(decide(en), 'app', en).cards[0].body.includes('investment profile'));
 });

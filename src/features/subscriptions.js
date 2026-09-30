@@ -136,7 +136,7 @@ module.exports = {
   },
   personas: [
     { // One streaming service whose latest charge went up: EUR 10 -> EUR 15.
-      id: 'c8', name: 'Tim Jacobs', age: 27, lang: 'en', balance: 3100,
+      id: 'sub1', name: 'Tim Jacobs', age: 27, lang: 'en', balance: 3100,
       consent: { personalization: true, transactionInsights: true, advisorInsights: true },
       events: [
         ...[0, 1, 2, 3, 4, 5].map((i) => ({ d: i * 30 + 26, cat: 'salary', amt: 2800 })),
@@ -146,7 +146,7 @@ module.exports = {
       ],
     },
     { // Cancelled Spotify, still charged; plus a yearly cloud plan about to renew.
-      id: 'c9', name: 'Nora Vandamme', age: 31, lang: 'nl', balance: 2600,
+      id: 'sub2', name: 'Nora Vandamme', age: 31, lang: 'nl', balance: 2600,
       consent: { personalization: true, transactionInsights: true, advisorInsights: true },
       events: [
         ...[0, 1, 2, 3, 4, 5].map((i) => ({ d: i * 30 + 26, cat: 'salary', amt: 2500 })),

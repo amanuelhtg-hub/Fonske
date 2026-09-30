@@ -61,7 +61,7 @@ module.exports = {
   name: 'household',
   personas: [
     { // Internet bill jumped from €45 to €60 (promotion probably ended). Healthy account.
-      id: 'c8', name: 'Eva Janssens', age: 31, lang: 'en', balance: 3100, consent: { personalization: true, transactionInsights: true, advisorInsights: true },
+      id: 'hh1', name: 'Eva Janssens', age: 31, lang: 'en', balance: 3100, consent: { personalization: true, transactionInsights: true, advisorInsights: true },
       events: [
         ...monthly('salary', 3000, 6, 26), ...monthly('rent', -900, 6, 3), ...monthly('groceries', -350, 6, 10),
         ...bill('Internet provider', [-45, -45, -45, -45, -45, -60], 10),
@@ -69,7 +69,7 @@ module.exports = {
       ],
     },
     { // Electricity bill due tomorrow but the current account is €80 short; linked savings can cover it.
-      id: 'c9', name: 'Pieter De Smet', age: 44, lang: 'nl', balance: 120, savings: 2500, consent: { personalization: true, transactionInsights: true, advisorInsights: true },
+      id: 'hh2', name: 'Piet Vermeersch', age: 44, lang: 'nl', balance: 120, savings: 2500, consent: { personalization: true, transactionInsights: true, advisorInsights: true },
       events: [
         ...monthly('salary', 2800, 6, 12), ...monthly('rent', -950, 6, 3), ...monthly('groceries', -400, 6, 8),
         ...bill('Energy supplier', [-200, -200, -200, -200, -200, -200], 29),

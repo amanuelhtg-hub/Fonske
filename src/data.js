@@ -92,8 +92,8 @@ const CUSTOMERS = [...CORE_CUSTOMERS, ...require('./features').FEATURES.flatMap(
 
 // Advisors can only ever see customers assigned to them (and only with consent).
 const ADVISORS = [
-  { id: 'a1', name: 'An Jacobs (advisor)', assigned: ['c1', 'c2', 'c3', 'c5'] },
-  { id: 'a2', name: 'Bart Goossens (advisor)', assigned: ['c4', 'c6', 'c7'] },
+  { id: 'a1', name: 'An Jacobs (advisor)', assigned: ['c1', 'c2', 'c3', 'c5', 'sub1', 'sub2', 'sav1', 'sav2', 'hh1'] },
+  { id: 'a2', name: 'Bart Goossens (advisor)', assigned: ['c4', 'c6', 'c7', 'hh2', 'tr1', 'tr2', 'tr3'] },
 ];
 
 // Seeded PRNG so the scale benchmark is reproducible.

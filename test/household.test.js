@@ -8,21 +8,21 @@ const cust = (id) => structuredClone(CUSTOMERS.find((c) => c.id === id));
 const ids = (id) => decide(cust(id)).moments.map((m) => m.id);
 
 test('household: bill increase detected for c8 only', () => {
-  const m = decide(cust('c8')).moments.find((x) => x.id === 'bill_increase');
+  const m = decide(cust('hh1')).moments.find((x) => x.id === 'bill_increase');
   assert.deepStrictEqual([m.facts.from, m.facts.to, m.facts.energy], [45, 60, false]);
-  for (const id of ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c9']) assert.ok(!ids(id).includes('bill_increase'), id);
+  for (const id of ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'hh2']) assert.ok(!ids(id).includes('bill_increase'), id);
 });
 
 test('household: shortfall with linked-savings transfer for c9 only', () => {
-  const m = decide(cust('c9')).moments.find((x) => x.id === 'bill_shortfall');
+  const m = decide(cust('hh2')).moments.find((x) => x.id === 'bill_shortfall');
   assert.strictEqual(m.facts.short, 80);
   assert.strictEqual(m.facts.dueIn, 1);
   assert.deepStrictEqual(m.facts.transfer, { from: 'savings', to: 'payment account', amount: 80 });
-  for (const id of ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8']) assert.ok(!ids(id).includes('bill_shortfall'), id);
+  for (const id of ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'hh1']) assert.ok(!ids(id).includes('bill_shortfall'), id);
 });
 
 test('household: shortfall without savings gives no transfer; enough balance gives no shortfall', () => {
-  const c = cust('c9'); delete c.savings;
+  const c = cust('hh2'); delete c.savings;
   const m = decide(c).moments.find((x) => x.id === 'bill_shortfall');
   assert.strictEqual(m.facts.transfer, null);
   c.balance = 500;
@@ -37,16 +37,16 @@ test('household: energy increase is framed with the usage caveat', () => {
 });
 
 test('household: not fired for one-off payments or a stale bill', () => {
-  const c = cust('c8');
+  const c = cust('hh1');
   c.events = c.events.filter((e) => e.m !== 'Internet provider').concat({ d: 2, cat: 'utility', amt: -60, m: 'Internet provider' });
   assert.ok(!decide(c).moments.some((x) => x.id === 'bill_increase'));
 });
 
 test('household: shortfall is care (survives overdraft) and text exists in EN and NL', () => {
-  const c = cust('c9'); c.events.push({ d: 2, cat: 'overdraft_fee', amt: -12 });
+  const c = cust('hh2'); c.events.push({ d: 2, cat: 'overdraft_fee', amt: -12 });
   const r = decide(c);
   assert.ok(r.decisions.some((d) => d.moment === 'bill_shortfall'));
   assert.match(render(r, 'app', c).cards[0].title, /tekort/);
-  const e = cust('c9'); e.lang = 'en';
+  const e = cust('hh2'); e.lang = 'en';
   assert.match(render(decide(e), 'app', e).cards[0].title, /short/);
 });
