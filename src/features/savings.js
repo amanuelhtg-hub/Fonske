@@ -63,8 +63,6 @@ module.exports = {
       id: 'excess-cash', kind: 'commercial', priority: 2,
       en: (f) => ({ title: `An estimated ${eur(f.excess)} could be set aside`,
         body: `We kept your bills, everyday spending${f.planned ? ', an upcoming renewal' : ''} and ${f.reserveChosen ? 'your chosen' : 'a 3-month'} buffer of ${eur(f.reserve)} out of it. Is this money needed for something coming up? If not, we can move it to a ${f.product.name}; for investing we would first walk you through your investment profile. You can correct any assumption.`, cta: 'Review and set aside' }),
-      nl: (f) => ({ title: `Naar schatting ${eur(f.excess)} kan je opzijzetten`,
-        body: `We hielden rekening met je vaste lasten, dagelijkse uitgaven${f.planned ? ', een komende vernieuwing' : ''} en ${f.reserveChosen ? 'je gekozen' : 'een'} buffer van ${eur(f.reserve)}. Heb je dit geld nodig voor iets wat eraan komt? Zo niet, dan kunnen we het overzetten naar een ${f.product.name}; voor beleggen overlopen we eerst je beleggersprofiel. Je kan elke aanname aanpassen.`, cta: 'Bekijk en zet opzij' }),
       advisor: ['Ask first: is this money needed soon? Needed soon: keep accessible or a savings goal',
         'Emergency reserve still being built: accessible savings route',
         'Long-term goal and interest in investing: open the investment-profile process (objectives, risk, finances, horizon). A high balance or risk toggle is not enough',
@@ -73,7 +71,7 @@ module.exports = {
   },
   personas: [
     { // Illustrative surplus: €4,200 - €1,200 bills - €600 everyday - €1,500 chosen reserve = ~€900.
-      id: 'sav1', name: 'Emma Jacobs', age: 35, lang: 'en', balance: 4200,
+      id: 'sav1', name: 'Emma Jacobs', age: 35, balance: 4200,
       consent: { personalization: true, transactionInsights: true, advisorInsights: true },
       prefs: { reserve: 1500 },
       events: [
@@ -82,7 +80,7 @@ module.exports = {
         ...Array.from({ length: 6 }, (_, i) => ({ d: i * 30 + 10, cat: 'groceries', amt: -600 })),
       ] },
     { // One large incoming payment lifted the balance: weaker evidence than a steadily high balance.
-      id: 'sav2', name: 'Pieter De Smet', age: 47, lang: 'nl', balance: 9000,
+      id: 'sav2', name: 'Pieter De Smet', age: 47, balance: 9000,
       consent: { personalization: true, transactionInsights: true, advisorInsights: true },
       events: [
         ...Array.from({ length: 6 }, (_, i) => ({ d: i * 30 + 26, cat: 'salary', amt: 2500 })),

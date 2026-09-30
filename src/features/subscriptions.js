@@ -17,13 +17,13 @@ module.exports = {
   name: 'subscriptions',
   eventCats: ['subscription_annual', 'subscription_cancelled'],
   derive(c) {
-    const items = recurring(c.events, 'subscription');
+    const items = recurring(c.events, 'subscription').filter((x) => x.monthly > 0); // credits are not charges
     const last = new Map(); // merchant -> two latest charges
     const cancelled = new Map();
     const annual = [];
     for (const e of c.events) {
       if (!e.m) continue;
-      if (e.cat === 'subscription') {
+      if (e.cat === 'subscription' && e.amt < 0) {
         let r = last.get(e.m);
         if (!r) last.set(e.m, (r = { d1: 1e9, a1: 0, d2: 1e9, a2: 0, n: 0, first: 0 }));
         r.n++;
@@ -97,46 +97,36 @@ module.exports = {
       id: 'review-subscriptions', kind: 'care', priority: 3, product: PRODUCT,
       en: (f) => ({ title: `You pay ${eur(f.total)}/month on ${f.count} subscriptions`,
         body: `${f.hikes.length ? `${f.hikes.join(' and ')} got more expensive. ` : ''}${f.overlaps.length ? `You pay for overlapping services: ${f.overlaps.join('; ')}. ` : ''}Review them in one place and get alerts on price changes.`, cta: 'Review subscriptions' }),
-      nl: (f) => ({ title: `Je betaalt ${eur(f.total)}/maand voor ${f.count} abonnementen`,
-        body: `${f.hikes.length ? `${f.hikes.join(' en ')} werd duurder. ` : ''}${f.overlaps.length ? `Je betaalt voor overlappende diensten: ${f.overlaps.join('; ')}. ` : ''}Bekijk ze op één plek en ontvang een melding bij prijswijzigingen.`, cta: 'Bekijk abonnementen' }),
       advisor: ['Subscription spend reviewed with customer', 'Offer overview and price-change alerts'],
     },
     subscription_hike: {
       id: 'subscription-hike', kind: 'care', priority: 4, product: PRODUCT,
       en: (f) => ({ title: `${f.m} went from ${money(f.from)} to ${money(f.to)}/month`,
         body: `That adds ${money(f.yearly)}/year if the new price continues. Keep it, or review your options? Stopping payments is not the same as cancelling the contract.`, cta: 'Review cancellation options' }),
-      nl: (f) => ({ title: `${f.m} ging van ${money(f.from)} naar ${money(f.to)}/maand`,
-        body: `Dat is ${money(f.yearly)}/jaar extra als de nieuwe prijs blijft. Behouden, of je opties bekijken? Betalingen stopzetten is niet hetzelfde als het contract opzeggen.`, cta: 'Bekijk opzegopties' }),
       advisor: ['Price increase on a recurring subscription', 'Ask whether the customer still uses it; offer price-change alerts'],
     },
     subscription_new: {
       id: 'subscription-new', kind: 'care', priority: 2, product: PRODUCT,
       en: (f) => ({ title: `New recurring payment: ${f.m}`,
         body: `We noticed ${money(f.amount)} leaving your account monthly to ${f.m}${f.more ? ` (and ${f.more} more new ${plural(f.more, 'one', 'ones')})` : ''}. Is this one yours? Confirm it to track its price and renewals.`, cta: 'Confirm subscription' }),
-      nl: (f) => ({ title: `Nieuwe terugkerende betaling: ${f.m}`,
-        body: `We zagen maandelijks ${money(f.amount)} naar ${f.m}${f.more ? ` (en nog ${f.more} ${plural(f.more, 'nieuwe', 'nieuwe')})` : ''}. Is die van jou? Bevestig om prijs en verlengingen op te volgen.`, cta: 'Bevestig abonnement' }),
       advisor: ['New recurring payment detected; ask the customer to confirm it'],
     },
     subscription_cancelled_charge: {
       id: 'subscription-cancelled-charge', kind: 'care', priority: 5, product: PRODUCT,
       en: (f) => ({ title: `${f.m} charged you ${money(f.amount)} after you cancelled`,
-        body: `You marked it as cancelled ${f.cancelledDaysAgo} days ago, but a payment followed ${f.daysAgo} days ago. The cancellation may not have gone through. You can follow up with the merchant or ask for a refund; blocking future payments alone does not end the contract.`, cta: 'Follow up cancellation' }),
-      nl: (f) => ({ title: `${f.m} rekende ${money(f.amount)} aan na je opzegging`,
-        body: `Je markeerde het ${f.cancelledDaysAgo} dagen geleden als opgezegd, maar ${f.daysAgo} dagen geleden volgde toch een betaling. De opzegging is mogelijk niet doorgekomen. Neem contact op met de handelaar of vraag een terugbetaling; toekomstige betalingen blokkeren beëindigt het contract niet.`, cta: 'Opzegging opvolgen' }),
+        body: `You marked it as cancelled ${f.cancelledDaysAgo} days ago, but a payment followed ${f.daysAgo} days ago. The cancellation may not have gone through. You can follow up with the merchant; blocking future payments alone does not end the contract.`, cta: 'Follow up cancellation' }),
       advisor: ['Charge after customer-reported cancellation', 'Help follow up with merchant; distinguish payment blocking from cancelling'],
     },
     subscription_annual: {
       id: 'subscription-annual', kind: 'care', priority: 3, product: PRODUCT,
       en: (f) => ({ title: `${f.m} probably renews in about ${f.inDays} days`,
         body: `It cost ${money(f.amount)} last year. Decide now whether to keep it, before the charge arrives.`, cta: 'Review renewal' }),
-      nl: (f) => ({ title: `${f.m} verlengt waarschijnlijk binnen ongeveer ${f.inDays} dagen`,
-        body: `Vorig jaar kostte het ${money(f.amount)}. Beslis nu of je het behoudt, vóór de betaling binnenkomt.`, cta: 'Bekijk verlenging' }),
       advisor: ['Annual subscription renewal approaching'],
     },
   },
   personas: [
     { // One streaming service whose latest charge went up: EUR 10 -> EUR 15.
-      id: 'sub1', name: 'Tim Jacobs', age: 27, lang: 'en', balance: 3100,
+      id: 'sub1', name: 'Tim Jacobs', age: 27, balance: 3100,
       consent: { personalization: true, transactionInsights: true, advisorInsights: true },
       events: [
         ...[0, 1, 2, 3, 4, 5].map((i) => ({ d: i * 30 + 26, cat: 'salary', amt: 2800 })),
@@ -146,7 +136,7 @@ module.exports = {
       ],
     },
     { // Cancelled Spotify, still charged; plus a yearly cloud plan about to renew.
-      id: 'sub2', name: 'Nora Vandamme', age: 31, lang: 'nl', balance: 2600,
+      id: 'sub2', name: 'Nora Vandamme', age: 31, balance: 2600,
       consent: { personalization: true, transactionInsights: true, advisorInsights: true },
       events: [
         ...[0, 1, 2, 3, 4, 5].map((i) => ({ d: i * 30 + 26, cat: 'salary', amt: 2500 })),

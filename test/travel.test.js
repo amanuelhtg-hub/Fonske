@@ -10,7 +10,7 @@ const ids = (c) => decide(c).moments.map((m) => m.id).sort();
 test('booking without foreign spending asks what the trip is', () => {
   assert.deepStrictEqual(ids(cust('tr1')), ['trip_upcoming']);
   const card = render(decide(cust('tr1')), 'app', cust('tr1')).cards[0];
-  assert.match(card.body, /vakantie, een tijdelijk verblijf of een verhuis/);
+  assert.match(card.body, /holiday, a temporary stay or a move/);
 });
 
 test('confirmed temporary stay yields the cover-duration card, not relocation', () => {
@@ -55,11 +55,11 @@ test('old bookings are ignored and overdraft suppresses the commercial cards', (
   assert.strictEqual(decide(t).decisions.length, 0);
 });
 
-test('every travel action has English and Dutch text', () => {
+test('every travel action renders title, body and cta', () => {
   const { ACTIONS } = require('../src/features');
   for (const id of ['trip_upcoming', 'travel', 'temporary_stay', 'travel_disruption', 'relocation']) {
     for (const f of [{ country: 'ES', merchant: 'X', booking: 'X' }, { confirmed: true, cost: 10, months: 3 }]) {
-      for (const l of ['en', 'nl']) { const t = ACTIONS[id][l](f); assert.ok(t.title && t.body && t.cta); }
+      const t = ACTIONS[id].en(f); assert.ok(t.title && t.body && t.cta);
     }
   }
 });

@@ -42,13 +42,11 @@ test('household: not fired for one-off payments or a stale bill', () => {
   assert.ok(!decide(c).moments.some((x) => x.id === 'bill_increase'));
 });
 
-test('household: shortfall is care (survives overdraft) and text exists in EN and NL', () => {
+test('household: shortfall is care (survives overdraft) and says how much is missing', () => {
   const c = cust('hh2'); c.events.push({ d: 2, cat: 'overdraft_fee', amt: -12 });
   const r = decide(c);
   assert.ok(r.decisions.some((d) => d.moment === 'bill_shortfall'));
-  assert.match(render(r, 'app', c).cards[0].title, /tekort/);
-  const e = cust('hh2'); e.lang = 'en';
-  assert.match(render(decide(e), 'app', e).cards[0].title, /short/);
+  assert.match(render(r, 'app', c).cards[0].title, /€80 short/);
 });
 
 test('household: odd inputs do not crash or fire', () => {
