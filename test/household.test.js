@@ -66,3 +66,43 @@ test('household: refunds (positive utility amounts) are ignored and consent off 
   const n = cust('hh2'); n.consent.transactionInsights = false;
   assert.deepStrictEqual(decide(n).moments, []);
 });
+
+test('contract watch: ended discount + document gives a prepared same-provider change (hh3)', () => {
+  const m = decide(cust('hh3')).moments.find((x) => x.id === 'contract_watch');
+  assert.strictEqual(m.facts.status, 'ready');
+  assert.deepStrictEqual([m.facts.monthlySaving, m.facts.annualSaving, m.facts.newPlan, m.facts.promoEnded], [12, 144, 'Fibre 100 Web', true]);
+  assert.deepStrictEqual(m.facts.prepared, { type: 'plan_change', supplier: 'Internet provider', fromPlan: 'Fibre 100', toPlan: 'Fibre 100 Web' });
+  assert.ok(!decide(cust('hh3')).moments.some((x) => x.id === 'bill_increase'), 'no duplicate card for the same bill');
+  const card = render(decide(cust('hh3')), 'app', cust('hh3')).cards[0];
+  assert.match(card.body, /€144/);
+  for (const id of ['c1', 'c6', 'hh1', 'hh2']) assert.ok(!ids(id).includes('contract_watch'), id);
+});
+
+test('contract watch: no document means no comparison; hh1 keeps the plain bill_increase', () => {
+  const c = cust('hh3'); delete c.documents;
+  const r = decide(c).moments.map((m) => m.id);
+  assert.ok(r.includes('bill_increase') && !r.includes('contract_watch'));
+});
+
+test('contract watch: energy without usage asks for the bill and makes no saving claim', () => {
+  const c = cust('hh3');
+  c.events.forEach((e) => { if (e.m === 'Internet provider') e.m = 'Energy supplier'; });
+  c.documents = [{ m: 'Energy supplier', plan: 'Variable', renewalInDays: 90 }];
+  const m = decide(c).moments.find((x) => x.id === 'contract_watch');
+  assert.strictEqual(m.facts.status, 'needs_info');
+  assert.ok(m.facts.missing.includes('yearly usage (kWh)') && m.facts.annualSaving === undefined);
+});
+
+test('contract watch: no cheaper equal-speed plan, tiny saving, or stale discount = no card', () => {
+  const a = cust('hh3'); a.documents[0].speedMbps = 500;
+  assert.ok(!decide(a).moments.some((x) => x.id === 'contract_watch'));
+  const b = cust('hh3'); b.documents = [{ m: 'Internet provider', plan: 'Fibre 100', speedMbps: 100, renewalInDays: 10 }];
+  b.events.forEach((e) => { if (e.m === 'Internet provider' && e.d <= 12) e.amt = -50; });
+  assert.ok(!decide(b).moments.some((x) => x.id === 'contract_watch'));
+});
+
+test('contract watch: overdraft customer still gets it (care), odd documents do not crash', () => {
+  const c = cust('hh3'); c.events.push({ d: 2, cat: 'overdraft_fee', amt: -12 });
+  assert.ok(decide(c).decisions.some((d) => d.moment === 'contract_watch'));
+  for (const documents of [null, [], [{}], [{ m: 'Internet provider' }], 'x']) assert.doesNotThrow(() => decide({ ...cust('hh3'), documents }));
+});
