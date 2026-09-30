@@ -28,11 +28,65 @@ function billCalendar(ev) {
 
 const STEP = 0.15; // latest payment at least 15% (and €5) above the previous one
 
+// ---- Contract Watch (prototype): documents and tariff catalogue are SIMULATED ----------------------
+// customer.documents = what the customer connected or forwarded, already read into fields. Anything the
+// reader could not find is simply absent and is reported as missing, never guessed.
+//   { m, plan, speedMbps?, usageKwh?, promoEndedDaysAgo?, renewalInDays?, cancelNoticeDays?, terminationFee? }
+const CATALOGUE = { // current tariffs per supplier (illustrative; in production this is a tariff-data feed)
+  'Internet provider': [
+    { name: 'Fibre 100', speedMbps: 100, monthly: 60, switchFee: 0 },
+    { name: 'Fibre 100 Web', speedMbps: 100, monthly: 48, switchFee: 0 },
+    { name: 'Fibre 500', speedMbps: 500, monthly: 75, switchFee: 0 },
+  ],
+};
+const MIN_SAVING = 60; // estimated first-year saving (after switch fee) needed before we prepare a change
+
+function watch(s) {
+  const out = [];
+  for (const d of s.docs) {
+    const b = s.bills.find((x) => x.m === d.m);
+    if (!b) continue;
+    const stepped = b.amount - b.prev >= 5 && b.amount / b.prev - 1 >= STEP;
+    const promoEnded = Number.isFinite(d.promoEndedDaysAgo) && d.promoEndedDaysAgo >= 0 && d.promoEndedDaysAgo <= 60;
+    if (!stepped && !promoEnded) continue;
+    const missing = [];
+    if (b.energy && !Number.isFinite(d.usageKwh)) missing.push('yearly usage (kWh)');
+    if (!b.energy && !Number.isFinite(d.speedMbps)) missing.push('plan speed');
+    if (!Number.isFinite(d.renewalInDays)) missing.push('renewal date');
+    const base = { m: d.m, plan: d.plan || null, from: b.prev, to: b.amount, energy: b.energy, promoEnded, missing,
+      renewalInDays: Number.isFinite(d.renewalInDays) ? d.renewalInDays : null, cancelNoticeDays: d.cancelNoticeDays ?? null };
+    const lines = [`Your ${d.m} contract${d.plan ? ` (${d.plan})` : ''} is on file`,
+      `${d.m}: latest payment ${eur(b.amount)}, previous payment ${eur(b.prev)}`];
+    if (promoEnded) lines.push(`The document says the discount ended ${d.promoEndedDaysAgo} day(s) ago`);
+    if (b.energy || missing.includes('plan speed')) {
+      out.push({ id: 'contract_watch', confidence: 0.65, evidence: [...lines, `Cannot compare yet. Missing: ${missing.join(', ') || 'usage and contract terms'}`],
+        facts: { ...base, status: 'needs_info', missing: missing.length ? missing : ['usage'] } });
+      continue;
+    }
+    const opts = (CATALOGUE[d.m] || []).filter((o) => o.speedMbps >= d.speedMbps && o.monthly < b.amount)
+      .sort((x, y) => x.monthly - y.monthly || x.speedMbps - y.speedMbps);
+    const best = opts[0];
+    if (!best) continue;
+    const monthlySaving = b.amount - best.monthly;
+    const annualSaving = Math.round(monthlySaving * 12 - best.switchFee);
+    if (annualSaving < MIN_SAVING) continue;
+    lines.push(`Same provider lists "${best.name}" at ${best.speedMbps} Mbps for ${eur(best.monthly)}/month (yours: ${d.speedMbps} Mbps)`,
+      `Switch fee ${eur(best.switchFee)}; estimated first-year saving ${eur(annualSaving)}`);
+    if (missing.length) lines.push(`Not found in the document: ${missing.join(', ')}`);
+    out.push({ id: 'contract_watch', confidence: 0.9 - (missing.length ? 0.1 : 0), evidence: lines,
+      facts: { ...base, status: 'ready', newPlan: best.name, newSpeedMbps: best.speedMbps, newMonthly: best.monthly, switchFee: best.switchFee,
+        monthlySaving, annualSaving, prepared: { type: 'plan_change', supplier: d.m, fromPlan: d.plan || null, toPlan: best.name } } });
+  }
+  return out;
+}
+
 // Bill increase + shortfall opportunities (cheap: no bills -> nothing to do).
 function extra(s) {
   const out = [];
   if (!s.bills.length) return out;
-  const up = s.bills.filter((b) => b.amount - b.prev >= 5 && b.amount / b.prev - 1 >= STEP)
+  const watched = s.docs.length ? watch(s) : [];
+  out.push(...watched);
+  const up = s.bills.filter((b) => !watched.some((w) => w.facts.m === b.m) && b.amount - b.prev >= 5 && b.amount / b.prev - 1 >= STEP)
     .sort((a, b) => (b.amount - b.prev) - (a.amount - a.prev))[0];
   if (up) {
     out.push({ id: 'bill_increase', confidence: up.energy ? 0.7 : 0.85, evidence: [
@@ -76,9 +130,18 @@ module.exports = {
         ...bill('Water company', [-25, -25, -25, -25, -25, -25], 19),
       ],
     },
+    { // Internet discount ended (€45 -> €60). Contract and tariff catalogue are simulated: same provider has a €48 plan at equal speed.
+      id: 'hh3', name: 'Noor Claessens', age: 36, balance: 2600, consent: { personalization: true, transactionInsights: true, advisorInsights: true },
+      documents: [{ m: 'Internet provider', plan: 'Fibre 100', speedMbps: 100, promoEndedDaysAgo: 12, renewalInDays: 200, cancelNoticeDays: 30 }],
+      events: [
+        ...monthly('salary', 3100, 6, 26), ...monthly('rent', -850, 6, 3), ...monthly('groceries', -380, 6, 10),
+        ...bill('Internet provider', [-45, -45, -45, -45, -45, -60], 12),
+        ...bill('Mobile operator', [-18, -18, -18, -18, -18, -18], 20),
+      ],
+    },
   ],
   derive: (c) => ({
-    bills: billCalendar(c.events),
+    bills: billCalendar(c.events), docs: Array.isArray(c.documents) ? c.documents : [],
     account: c.balance, savings: c.savings > 0 ? c.savings : 0,
     utilities: recurring(c.events, 'utility'),
     annual: c.events.filter((e) => e.cat === 'insurance' && e.d >= 335 && e.d <= 395)
@@ -98,6 +161,18 @@ module.exports = {
     return out;
   },
   actions: {
+    contract_watch: {
+      id: 'household-contract-watch', kind: 'care', priority: 5,
+      product: { id: 'kbc-bills', name: 'KBC Mobile: bills calendar & direct debits' },
+      en: (f) => (f.status === 'ready'
+        ? { title: `${f.promoEnded ? `Your ${f.m} discount ended` : `Your ${f.m} payment rose`}: a cheaper plan may fit`,
+          body: `Based on your contract, "${f.newPlan}" from the same provider lists the same speed for ${eur(f.monthlySaving)} less per month. Estimated saving about ${eur(f.annualSaving)} in the first year${f.switchFee ? ` after a ${eur(f.switchFee)} switch fee` : ''}. The provider confirms the final price, and nothing changes until you approve.`,
+          cta: 'Review prepared change' }
+        : { title: `Your ${f.m} payment rose from ${eur(f.from)} to ${eur(f.to)}`,
+          body: `I can't compare plans yet. Missing: ${f.missing.join(', ')}. ${f.energy ? 'A higher energy payment can come from usage, an adjusted advance or a yearly settlement, so I need your latest bill before saying anything about the tariff.' : 'Forward your latest bill and I will check it.'}`,
+          cta: 'Add latest bill' }),
+      advisor: ['Contract on file; recurring bill changed', 'Only compare with contract terms (and usage for energy); show fees and switching costs', 'Estimates, not guarantees'],
+    },
     bill_increase: {
       id: 'household-bill-increase', kind: 'care', priority: 4,
       product: { id: 'kbc-bills', name: 'KBC Mobile: bills calendar & direct debits' },
