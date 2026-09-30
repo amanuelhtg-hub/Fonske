@@ -113,6 +113,9 @@ function throttled(ip) {
 const SCENARIOS = { c1: 'subscription overview', c2: 'excess cash, medium risk', c3: 'overdrawn (care only)', c4: 'holiday + disruption', c5: 'moved abroad',
   c6: 'household bills + idle cash', c7: 'personalisation off', sub1: 'subscription price hike', sub2: 'charged after cancelling', sav1: 'savings with chosen reserve',
   sav2: 'one-off payment (no card)', hh1: 'bill increase', hh2: 'bill shortfall + savings transfer', tr1: 'booking, nothing abroad yet', tr2: 'temporary stay', tr3: 'cancelled booking', sub3: 'free trial ended (payment held)', tr4: 'work trip', tr5: 'claim payout received' };
+// Transaction-like events only: marker events (answers, reminders, PNR codes) are not shown in the app's home screen.
+const NOT_TRANSACTIONS = new Set(['travel_confirm', 'travel_pnr', 'booking_cancelled', 'flight_delay', 'subscription_cancelled', 'subscription_trial',
+  'subscription_reminder', 'subscription_kept', 'subscription_guard', 'subscription_blocked', 'subscription_enabled']);
 const CHANNELS = new Set(['app', 'email', 'advisor']);
 const CONSENT_KEYS = ['personalization', 'transactionInsights', 'advisorInsights'];
 
@@ -194,6 +197,13 @@ async function handle(req, res) {
         if (me.events.length > MAX_EVENTS) me.events.splice(0, me.events.length - MAX_EVENTS);
         me.balance += b.amt;
         return send(res, 202, { accepted: true, changed: publish(me) });
+      }
+      if (p === '/api/me/home' && req.method === 'GET') {
+        const transactions = me.events
+          .filter((e) => e.amt !== 0 && !NOT_TRANSACTIONS.has(e.cat))
+          .sort((a, b) => a.d - b.d).slice(0, 8)
+          .map((e) => ({ cat: e.cat, label: e.m || null, amount: e.amt, daysAgo: e.d }));
+        return send(res, 200, { name: me.name, balance: me.balance, savings: Number.isFinite(me.savings) ? me.savings : null, transactions });
       }
       if (p === '/api/me/consent' && req.method === 'GET') return send(res, 200, me.consent);
       if (p === '/api/me/consent' && req.method === 'PUT') {

@@ -2,54 +2,110 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F8F9FA">
 <title>Kate for KBC</title>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<header><h1>Kate <small>for KBC</small></h1><span class="tag">understands, supports and guides 2.3M customers</span><button id="logout" hidden>Log out</button></header>
-
-<main id="login">
-  <h2>Demo login</h2>
-  <p class="muted">Synthetic personas only. The passcode is printed in the server console.</p>
-  <label>Persona <select id="persona"></select></label>
-  <label>Passcode <input id="passcode" type="password" autocomplete="off"></label>
-  <button id="go">Log in</button>
-  <p id="err" class="error"></p>
-</main>
-
-<main id="customer" hidden>
-  <nav class="tabs"><button data-ch="app" class="on">App</button><button data-ch="email">E-mail</button></nav>
-  <p id="notice" class="notice" hidden></p>
-  <section id="channel"></section>
-  <h3>Simulate live activity</h3>
-  <div id="sim">
-    <button data-cat="abroad" data-amt="-150" data-c="ES">Card payment in Spain</button>
-    <button data-cat="disruption" data-amt="-185" data-m="Airline rebooking" data-c="ES">Flight rebooking fee</button>
-    <button data-cat="overdraft_fee" data-amt="-12">Overdraft fee</button>
-    <button data-cat="subscription" data-amt="-12" data-m="Video Plus">New subscription charge</button>
-    <button data-cat="travel_booking" data-amt="-320" data-m="Brussels Airlines">Flight booking</button>
-    <button data-cat="booking_cancelled" data-amt="0" data-m="Brussels Airlines">Booking cancelled</button>
+<header class="topbar" id="topbar" hidden>
+  <div class="brand"><span id="brandIcon"></span><span class="brand-name">Kate</span><span class="brand-sub">for KBC</span></div>
+  <div class="top-actions">
+    <span id="presenterTag" class="presenter-tag" hidden>Presenter</span>
+    <button id="openSettings" class="icon-btn" aria-label="Settings and demo controls" hidden></button>
+    <button id="logout" class="text-btn">Log out</button>
   </div>
-  <p class="muted" id="live">Live updates: connecting…</p>
-  <h3>Your investment comfort</h3>
-  <label>How comfortable are you with investment risk?
-    <select id="risk"><option value="">Not set</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select>
-  </label>
-  <h3>Your privacy, your switches</h3>
-  <div id="consent"></div>
-  <p class="muted">Every suggestion tells you why you see it. Turn a switch off and Kate stops using that data immediately.</p>
+</header>
+
+<main id="login" class="screen">
+  <div class="panel-card stack mt-48">
+    <div id="loginIcon"></div>
+    <div>
+      <h1 class="h1">Kate</h1>
+      <p class="muted">Your personal finance assistant at KBC. Demo login with synthetic customers only.</p>
+    </div>
+    <label class="field"><span class="label">Customer or advisor</span><select id="persona"></select></label>
+    <label class="field"><span class="label">Passcode (printed in the server console)</span><input id="passcode" type="password" autocomplete="off"></label>
+    <button id="go" class="btn btn-primary">Log in</button>
+    <p id="err" class="k-error" role="alert"></p>
+  </div>
 </main>
 
-<main id="advisor" hidden>
-  <h2>Advisor view</h2>
-  <div id="clients"></div>
-  <section id="brief"></section>
-  <h3>Scale proof</h3>
-  <button id="bench">Score all 2,300,000 synthetic customers</button>
-  <pre id="benchOut"></pre>
+<main id="customer" class="screen" hidden>
+  <section class="greeting"><h1 class="h1" id="hello"></h1><p class="muted" id="date"></p></section>
+  <section class="panel-card balance">
+    <p class="label">Total balance</p>
+    <p class="amount" id="total"></p>
+    <div class="accounts" id="accounts"></div>
+  </section>
+  <section class="quick" id="quick" aria-hidden="true"></section>
+  <section class="panel-card">
+    <h2 class="h2">Recent activity</h2>
+    <ul class="tx-list" id="tx"></ul>
+  </section>
 </main>
+
+<main id="advisor" class="screen wide" hidden>
+  <section class="panel-card">
+    <h1 class="h1">Advisor view</h1>
+    <p class="muted">You only see customers assigned to you, and only when they have agreed to share insights.</p>
+    <div class="client-list" id="clients"></div>
+    <div id="brief" class="stack"></div>
+  </section>
+  <section class="panel-card mt-16">
+    <h2 class="h2">Scale proof</h2>
+    <p class="muted">Runs the full engine for 2.3 million synthetic customers across all CPU cores.</p>
+    <div class="mt-16"><button id="bench" class="btn btn-primary">Score all 2,300,000 customers</button></div>
+    <div id="benchOut"></div>
+  </section>
+</main>
+
+<div id="sheet" class="sheet" aria-live="polite"></div>
+<div id="toast" class="toast" role="status" hidden></div>
+
+<aside id="drawer" class="drawer" hidden aria-label="Settings and demo controls">
+  <div class="drawer-body">
+    <div class="drawer-head"><h2 class="h2">Settings &amp; demo</h2><button id="closeSettings" class="icon-btn" aria-label="Close"></button></div>
+
+    <h3>Your privacy, your switches</h3>
+    <div id="consent"></div>
+    <p class="muted small">Every suggestion explains why you see it. Turn a switch off and Kate stops using that data immediately.</p>
+
+    <h3>Your investment comfort</h3>
+    <label class="field mt-0"><select id="risk" aria-label="Comfort with investment risk">
+      <option value="">Not set</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+
+    <h3>Simulate live activity</h3>
+    <div class="chips" id="sim">
+      <button class="btn btn-neutral" data-cat="abroad" data-amt="-150" data-c="ES">Card payment in Spain</button>
+      <button class="btn btn-neutral" data-cat="disruption" data-amt="-185" data-m="Airline rebooking" data-c="ES">Flight rebooking fee</button>
+      <button class="btn btn-neutral" data-cat="overdraft_fee" data-amt="-12">Overdraft fee</button>
+      <button class="btn btn-neutral" data-cat="subscription" data-amt="-12" data-m="Video Plus">New subscription charge</button>
+      <button class="btn btn-neutral" data-cat="travel_booking" data-amt="-320" data-m="Brussels Airlines">Flight booking</button>
+      <button class="btn btn-neutral" data-cat="booking_cancelled" data-amt="0" data-m="Brussels Airlines">Booking cancelled</button>
+    </div>
+    <p class="muted small mt-8" id="live">Live updates: connecting…</p>
+
+    <h3>Presenter controls</h3>
+    <p class="muted small">
+      <span class="kbd">P</span> presenter mode (cards stay hidden until you trigger them) ·
+      <span class="kbd">1</span>–<span class="kbd">9</span> show the n-th card ·
+      <span class="kbd">0</span> or <span class="kbd">Esc</span> back to the home screen ·
+      <span class="kbd">R</span> reload cards
+    </p>
+    <div class="chips mt-8"><button id="togglePresenter" class="btn btn-neutral">Toggle presenter mode</button></div>
+
+    <h3>Why Kate stays quiet</h3>
+    <div id="guardrails"></div>
+
+    <h3>E-mail channel</h3>
+    <button id="previewEmail" class="btn btn-neutral">Preview e-mail</button>
+    <div id="email"></div>
+  </div>
+</aside>
+
+<script src="/ui.js"></script>
+<script src="/cards.js"></script>
 <script src="/app.js"></script>
-<script src="/actions.js"></script>
 </body>
 </html>

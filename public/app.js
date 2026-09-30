@@ -1,155 +1,233 @@
 'use strict';
-// All dynamic content is rendered with textContent / createElement: no innerHTML, so no XSS sink.
-const $ = (id) => document.getElementById(id);
-const el = (tag, props = {}, ...kids) => {
-  const n = Object.assign(document.createElement(tag), props);
-  for (const k of kids) n.append(k);
-  return n;
-};
-async function api(path, method = 'GET', body) {
-  const r = await fetch(path, {
-    method, credentials: 'same-origin',
-    headers: body ? { 'Content-Type': 'application/json' } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || r.statusText);
-  return data;
-}
+// App shell: login, idle home screen, Kate action cards (slide up when triggered), settings drawer and advisor view.
+// Screen states: idle (home page) -> triggered (card slides up) -> processing -> success (see cards.js).
+(function () {
+  const { $, el, svg, kateIcon, logo, categoryBadge, money, api, toast } = window.UI;
 
-let channel = 'app';
-const notify = (msg) => { $('notice').textContent = msg; $('notice').hidden = !msg; };
-window.Kate = { api, el, notify, refresh: () => renderCustomer() };
-let source = null;
+  let me = null;
+  let cards = [];                 // latest cards from the server, in priority order
+  let source = null;              // SSE connection
+  const snoozed = new Set();      // "Not now": hidden until reload or until re-triggered with a number key
+  const revealed = new Set();     // presenter mode: cards triggered so far
+  let presenter = new URLSearchParams(location.search).has('presenter');
+  let hiddenAll = false;          // Esc / 0: back to the plain home screen
+  let sheet = null;
+  let lastIds = new Set();
 
-function connectStream() {
-  if (source) source.close();
-  source = new EventSource('/api/me/stream');
-  source.onopen = () => { $('live').textContent = 'Live updates: connected'; };
-  source.onerror = () => { $('live').textContent = 'Live updates: reconnecting…'; };
-  source.addEventListener('update', () => renderCustomer());
-}
+  const isShown = (id) => !snoozed.has(id) && !hiddenAll && (!presenter || revealed.has(id));
 
-function showOnly(id) {
-  for (const v of ['login', 'customer', 'advisor']) $(v).hidden = v !== id;
-  $('logout').hidden = id === 'login';
-}
-
-async function loadPersonas() {
-  const p = await api('/api/personas');
-  const sel = $('persona');
-  sel.replaceChildren();
-  for (const c of [...p.customers, ...p.advisors]) sel.append(el('option', { value: c.id, textContent: c.scenario ? `${c.name} (${c.scenario})` : c.name }));
-}
-
-async function enter() {
-  try {
-    const me = await api('/api/me');
-    if (me.role === 'customer') { showOnly('customer'); await renderCustomer(); connectStream(); }
-    else { showOnly('advisor'); await renderAdvisor(); }
-  } catch { showOnly('login'); await loadPersonas(); }
-}
-
-function whyBlock(c) {
-  const d = el('details', {}, el('summary', { textContent: 'Why am I seeing this?' }));
-  if (!c.why.length) d.append(el('p', { textContent: 'This is a general message; nothing about you was analysed.' }));
-  else {
-    d.append(el('p', { textContent: `Opportunity: ${c.moment.replace(/_/g, ' ')} (confidence ${Math.round(c.confidence * 100)}%)` }));
-    const ul = el('ul');
-    for (const w of c.why) ul.append(el('li', { textContent: w }));
-    d.append(ul);
+  // ---------- screens ----------
+  function show(name) {
+    for (const s of ['login', 'customer', 'advisor']) $(s).hidden = s !== name;
+    $('topbar').hidden = name === 'login';
+    $('openSettings').hidden = name !== 'customer';
+    $('presenterTag').hidden = name !== 'customer' || !presenter;
+    if (name !== 'customer' && sheet) sheet.clear();
   }
-  return d;
-}
 
-async function renderCustomer() {
-  const exp = await api(`/api/me/experience?channel=${channel}`);
-  const box = $('channel');
-  box.replaceChildren();
-  if (exp.skipped) box.append(el('p', { className: 'muted', textContent: exp.skipped }));
-  else if (channel === 'email') {
-    box.append(el('div', { className: 'card' },
-      el('p', { className: 'muted', textContent: `Subject: ${exp.subject}` }),
-      el('p', { className: 'muted', textContent: exp.preheader }),
-      el('pre', { textContent: exp.text })));
-  } else {
-    box.append(el('h2', { textContent: exp.greeting }));
-    if (!exp.cards.length) box.append(el('p', { className: 'muted', textContent: 'Nothing to suggest right now. Silence is a feature.' }));
-    for (const c of exp.cards) {
-      const dismiss = el('button', { textContent: 'Not interested', className: 'ghost' });
-      dismiss.onclick = async () => { await api('/api/me/dismiss', 'POST', { actionId: c.actionId }); renderCustomer(); };
-      const cta = el('button', { textContent: c.cta });
-      const cardEl = el('div', { className: 'card' }, el('h4', { textContent: c.title }), el('p', { textContent: c.body }),
-        cta, ' ', dismiss,
-        ...(c.product ? [el('p', { className: 'muted', textContent: `Related: ${c.product.name}` })] : []), whyBlock(c));
-      cta.onclick = () => window.KateActions.open(c, cardEl);
-      box.append(cardEl);
+  async function loadPersonas() {
+    const p = await api('/api/personas');
+    const sel = $('persona');
+    sel.replaceChildren();
+    for (const c of p.customers) sel.append(el('option', { value: c.id, textContent: c.scenario ? `${c.name} · ${c.scenario}` : c.name }));
+    for (const a of p.advisors) sel.append(el('option', { value: a.id, textContent: a.name }));
+  }
+
+  async function enter() {
+    try {
+      me = await api('/api/me');
+    } catch {
+      show('login');
+      await loadPersonas();
+      return;
     }
-    for (const g of exp.guardrails) box.append(el('div', { className: 'guard muted', textContent: `Guardrail: ${g}` }));
+    if (me.role === 'customer') await enterCustomer(); else await enterAdvisor();
   }
-  $('risk').value = (await api('/api/me/preferences')).riskComfort || '';
-  const consent = await api('/api/me/consent');
-  const cbox = $('consent');
-  cbox.replaceChildren();
-  const labels = { personalization: 'Personalised suggestions', transactionInsights: 'Use my transactions to spot ways to help', advisorInsights: 'Share insights with my advisor' };
-  for (const k of Object.keys(labels)) {
-    const cb = el('input', { type: 'checkbox', checked: consent[k], id: `c-${k}` });
-    cb.onchange = async () => { await api('/api/me/consent', 'PUT', { [k]: cb.checked }); renderCustomer(); };
-    cbox.append(el('label', { className: 'switch' }, cb, labels[k]));
-  }
-}
 
-async function renderAdvisor() {
-  const list = await api('/api/advisor/customers');
-  const box = $('clients');
-  box.replaceChildren();
-  for (const c of list) {
-    const b = el('button', { textContent: c.name });
-    b.onclick = async () => {
-      const brief = await api(`/api/advisor/customers/${encodeURIComponent(c.id)}/brief`);
-      const out = $('brief');
-      out.replaceChildren();
-      if (brief.blocked) { out.append(el('p', { className: 'error', textContent: brief.blocked })); return; }
-      const card = el('div', { className: 'card' }, el('h4', { textContent: `Brief: ${brief.customer}` }));
-      const ul = el('ul');
-      for (const t of brief.talkingPoints) ul.append(el('li', { textContent: t }));
-      card.append(ul, el('p', { className: 'muted', textContent: brief.note }));
-      for (const g of brief.guardrails) card.append(el('div', { className: 'guard muted', textContent: g }));
-      out.append(card);
+  // ---------- customer: idle home + cards ----------
+  const QUICK = [['send', 'Pay'], ['wallet', 'Transfer'], ['card', 'Cards'], ['home', 'Home']];
+  const CAT_LABEL = { salary: 'Salary', rent: 'Rent', mortgage: 'Mortgage', groceries: 'Groceries', savings_transfer: 'Savings transfer', utility: 'Utilities', insurance: 'Insurance',
+    abroad: 'Card payment abroad', rent_abroad: 'Rent abroad', disruption: 'Travel cost', overdraft_fee: 'Overdraft fee', transfer_in: 'Incoming payment', travel_booking: 'Travel booking',
+    claim_payout: 'Payout', subscription: 'Subscription', subscription_annual: 'Annual subscription' };
+
+  async function enterCustomer() {
+    show('customer');
+    hiddenAll = presenter;       // presenter mode starts on the plain home screen
+    revealed.clear(); snoozed.clear(); lastIds = new Set();
+    sheet = window.KateCards.createSheet($('sheet'), { refresh: loadCards, snooze: (id) => { snoozed.add(id); } });
+    $('quick').replaceChildren(...QUICK.map(([i, t]) => el('div', {}, svg(i, 22), t)));
+    await Promise.all([loadHome(), buildDrawer()]);
+    connectStream();
+    setTimeout(loadCards, presenter ? 0 : 700);
+  }
+
+  async function loadHome() {
+    const h = await api('/api/me/home');
+    const first = h.name.split(' ')[0];
+    const hour = new Date().getHours();
+    $('hello').textContent = `${hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'}, ${first}`;
+    $('date').textContent = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+    $('total').textContent = money(h.balance + (h.savings || 0), 2);
+    $('accounts').replaceChildren(
+      el('div', { className: 'account' }, el('div', { className: 'name', textContent: 'Current account' }), el('div', { className: 'value', textContent: money(h.balance, 2) })),
+      ...(h.savings !== null ? [el('div', { className: 'account' }, el('div', { className: 'name', textContent: 'Savings' }), el('div', { className: 'value', textContent: money(h.savings, 2) }))] : []));
+    $('tx').replaceChildren(...h.transactions.map((t) => {
+      const name = t.label || CAT_LABEL[t.cat] || t.cat;
+      const when = t.daysAgo === 0 ? 'Today' : t.daysAgo === 1 ? 'Yesterday' : `${t.daysAgo} days ago`;
+      return el('li', { className: 'tx' }, t.label ? logo(t.label, 'sm') : categoryBadge('receipt', 'sm'),
+        el('div', { className: 'grow' }, el('div', { className: 'name', textContent: name }), el('div', { className: 'when', textContent: when })),
+        el('div', { className: `amt${t.amount > 0 ? ' in' : ''}`, textContent: `${t.amount > 0 ? '+' : '−'}${money(Math.abs(t.amount), 2)}` }));
+    }));
+  }
+
+  let loading = false;
+  async function loadCards() {
+    if (!me || me.role !== 'customer' || loading) return;
+    loading = true;
+    try {
+      const exp = await api('/api/me/experience?channel=app');
+      cards = exp.cards.filter((c) => c.moment !== null || c.actionId === 'generic-tips');
+      const ids = new Set(cards.map((c) => c.actionId));
+      // A card that just appeared (live event) is itself the trigger: reveal it even in presenter mode.
+      if (lastIds.size || revealed.size) for (const id of ids) if (!lastIds.has(id)) revealed.add(id);
+      lastIds = ids;
+      sheet.sync(cards, isShown);
+      renderGuardrails(exp.guardrails);
+      loadHome().catch(() => {});
+    } finally { loading = false; }
+  }
+
+  function connectStream() {
+    if (source) source.close();
+    source = new EventSource('/api/me/stream');
+    source.onopen = () => { $('live').textContent = 'Live updates: connected'; };
+    source.onerror = () => { $('live').textContent = 'Live updates: reconnecting…'; };
+    source.addEventListener('update', () => loadCards());
+  }
+
+  // ---------- settings drawer ----------
+  async function buildDrawer() {
+    const consent = await api('/api/me/consent');
+    const labels = { personalization: 'Personalised suggestions', transactionInsights: 'Use my transactions to spot ways to help', advisorInsights: 'Share insights with my advisor' };
+    $('consent').replaceChildren(...Object.keys(labels).map((k) => {
+      const cb = el('input', { type: 'checkbox', checked: consent[k], attrs: { 'aria-label': labels[k] } });
+      cb.onchange = async () => { await api('/api/me/consent', 'PUT', { [k]: cb.checked }); await buildDrawer(); loadCards(); };
+      return el('label', { className: 'switch' }, el('span', { textContent: labels[k] }), cb);
+    }));
+    $('risk').value = (await api('/api/me/preferences')).riskComfort || '';
+  }
+  function renderGuardrails(list) {
+    $('guardrails').replaceChildren(...(list.length ? list.map((g) => el('div', { className: 'guard', textContent: g })) : [el('p', { className: 'muted', textContent: 'No guardrail was needed right now.' })]));
+  }
+  const openDrawer = () => { $('drawer').hidden = false; $('closeSettings').focus(); };
+  const closeDrawer = () => { $('drawer').hidden = true; };
+
+  // ---------- presenter controls (keyboard) ----------
+  function setPresenter(on) {
+    presenter = on;
+    $('presenterTag').hidden = !on || me?.role !== 'customer';
+    hiddenAll = on;
+    revealed.clear();
+    snoozed.clear();
+    sheet.sync(cards, isShown);
+    toast(on ? 'Presenter mode: press 1–9 to trigger a card, 0 to clear.' : 'Presenter mode off.');
+  }
+  document.addEventListener('keydown', (e) => {
+    if (!me || me.role !== 'customer' || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+    if (!$('drawer').hidden) { if (e.key === 'Escape') closeDrawer(); return; }
+    if (/^[1-9]$/.test(e.key)) {
+      const c = cards[Number(e.key) - 1];
+      if (!c) return;
+      hiddenAll = false; snoozed.delete(c.actionId); revealed.add(c.actionId);
+      sheet.sync(cards, isShown);
+    } else if (e.key === '0' || e.key === 'Escape') {
+      hiddenAll = true; sheet.clear();
+    } else if (e.key.toLowerCase() === 'p') {
+      setPresenter(!presenter);
+    } else if (e.key.toLowerCase() === 'r') {
+      hiddenAll = false; snoozed.clear(); loadCards();
+    }
+  });
+
+  // ---------- advisor ----------
+  async function enterAdvisor() {
+    show('advisor');
+    const list = await api('/api/advisor/customers');
+    const box = $('clients');
+    box.replaceChildren();
+    for (const c of list) {
+      const b = el('button', { className: 'btn btn-neutral', textContent: c.name, attrs: { 'aria-pressed': 'false' } });
+      b.onclick = async () => {
+        for (const x of box.children) x.setAttribute('aria-pressed', String(x === b));
+        const out = $('brief');
+        out.replaceChildren();
+        try {
+          const brief = await api(`/api/advisor/customers/${encodeURIComponent(c.id)}/brief`);
+          if (brief.blocked) { out.append(el('p', { className: 'k-error', textContent: brief.blocked })); return; }
+          out.append(el('h2', { className: 'h2', textContent: `Brief: ${brief.customer}` }),
+            ...(brief.talkingPoints.length ? [el('ul', {}, ...brief.talkingPoints.map((t) => el('li', { textContent: t })))] : [el('p', { className: 'muted', textContent: 'Nothing to discuss right now.' })]),
+            el('p', { className: 'muted', textContent: brief.note }),
+            ...(brief.guardrails.length ? [el('div', {}, ...brief.guardrails.map((g) => el('div', { className: 'guard', textContent: g })))] : []));
+        } catch (e) { out.append(el('p', { className: 'k-error', textContent: e.message })); }
+      };
+      box.append(b);
+    }
+  }
+  const n = (x) => new Intl.NumberFormat('en-GB').format(x);
+  async function runBench() {
+    const out = $('benchOut');
+    out.replaceChildren(el('p', { className: 'muted', textContent: 'Running…' }));
+    try {
+      const r = await api('/api/advisor/bench?n=2300000');
+      const max = Math.max(1, ...Object.values(r.actions));
+      out.replaceChildren(
+        el('div', { className: 'stats' },
+          ...[['Customers', n(r.customers)], ['CPU workers', n(r.workers)], ['Time', `${(r.ms / 1000).toFixed(1)} s`], ['Per second', n(r.customersPerSecond)], ['Cards produced', n(r.cards)]]
+            .map(([k, v]) => el('div', { className: 'stat' }, el('div', { className: 'v', textContent: v }), el('div', { className: 'k', textContent: k })))),
+        el('div', { className: 'bars' }, ...Object.entries(r.actions).sort((a, b) => b[1] - a[1]).map(([id, v]) =>
+          el('div', { className: 'bar' }, el('span', { className: 'n', textContent: id }), el('span', { className: 'track' }, (() => { const f = el('span', { className: 'fill' }); f.style.width = `${Math.round((v / max) * 100)}%`; return f; })()), el('span', { textContent: n(v) })))));
+    } catch (e) { out.replaceChildren(el('p', { className: 'k-error', textContent: e.message })); }
+  }
+
+  // ---------- wiring ----------
+  $('brandIcon').append(kateIcon(32));
+  $('loginIcon').append(kateIcon(56));
+  $('openSettings').append(svg('sliders', 20));
+  $('closeSettings').append(svg('x', 20));
+  $('openSettings').onclick = openDrawer;
+  $('closeSettings').onclick = closeDrawer;
+  $('drawer').addEventListener('click', (e) => { if (e.target === $('drawer')) closeDrawer(); });
+  $('togglePresenter').onclick = () => { closeDrawer(); setPresenter(!presenter); };
+  $('risk').onchange = async () => { await api('/api/me/preferences', 'PUT', { riskComfort: $('risk').value || null }); };
+  $('previewEmail').onclick = async () => {
+    const x = await api('/api/me/experience?channel=email');
+    $('email').replaceChildren(el('div', { className: 'email-preview' },
+      ...(x.skipped ? [el('p', { className: 'muted', textContent: x.skipped })] : [el('p', { className: 'label', textContent: `Subject: ${x.subject}` }), el('pre', { textContent: x.text })])));
+  };
+  document.querySelectorAll('#sim button').forEach((b) => {
+    b.onclick = () => {
+      const ev = { cat: b.dataset.cat, amt: Number(b.dataset.amt) };
+      if (b.dataset.m) ev.m = b.dataset.m;
+      if (b.dataset.c) ev.c = b.dataset.c;
+      closeDrawer();
+      api('/api/me/events', 'POST', ev).catch((e) => toast(e.message));
     };
-    box.append(b);
-  }
-}
-
-$('go').onclick = async () => {
-  $('err').textContent = '';
-  try { await api('/api/login', 'POST', { userId: $('persona').value, passcode: $('passcode').value }); await enter(); }
-  catch (e) { $('err').textContent = e.message; }
-};
-$('logout').onclick = async () => {
-  notify('');
-  if (source) { source.close(); source = null; } await api('/api/logout', 'POST', {}); showOnly('login'); loadPersonas(); };
-$('risk').onchange = async () => { await api('/api/me/preferences', 'PUT', { riskComfort: $('risk').value || null }); };
-document.querySelectorAll('.tabs button').forEach((b) => {
-  b.onclick = () => {
-    channel = b.dataset.ch;
-    document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('on', x === b));
-    renderCustomer();
+  });
+  $('go').onclick = async () => {
+    $('err').textContent = '';
+    try { await api('/api/login', 'POST', { userId: $('persona').value, passcode: $('passcode').value }); $('passcode').value = ''; await enter(); }
+    catch (e) { $('err').textContent = e.message; }
   };
-});
-document.querySelectorAll('#sim button').forEach((b) => {
-  b.onclick = () => {
-    const ev = { cat: b.dataset.cat, amt: Number(b.dataset.amt) };
-    if (b.dataset.m) ev.m = b.dataset.m;
-    if (b.dataset.c) ev.c = b.dataset.c;
-    api('/api/me/events', 'POST', ev);
+  $('passcode').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('go').click(); });
+  $('logout').onclick = async () => {
+    if (source) { source.close(); source = null; }
+    closeDrawer(); toast('');
+    await api('/api/logout', 'POST', {});
+    me = null; cards = [];
+    if (sheet) sheet.clear();
+    show('login'); loadPersonas();
   };
-});
-$('bench').onclick = async () => {
-  $('benchOut').textContent = 'Running…';
-  try {
-    const r = await api('/api/advisor/bench?n=2300000');
-    $('benchOut').textContent = JSON.stringify(r, null, 2);
-  } catch (e) { $('benchOut').textContent = e.message; }
-};
-enter();
+  $('bench').onclick = runBench;
+  enter();
+}());
