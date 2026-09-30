@@ -6,6 +6,8 @@ const crypto = require('node:crypto');
 const { CUSTOMERS, ADVISORS } = require('./data');
 const { decide, render } = require('./engine');
 const { runBatch } = require('./batch');
+const { simulateCancellation } = require('./features/subscriptions');
+const { recurring } = require('./features/util');
 
 const PUBLIC = path.join(__dirname, '..', 'public');
 const SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
@@ -108,6 +110,9 @@ function throttled(ip) {
   return list.length > 10;
 }
 
+const SCENARIOS = { c1: 'subscription overview', c2: 'excess cash, medium risk', c3: 'overdrawn (care only)', c4: 'holiday + disruption', c5: 'moved abroad',
+  c6: 'household bills + idle cash', c7: 'personalisation off', sub1: 'subscription price hike', sub2: 'charged after cancelling', sav1: 'savings with chosen reserve',
+  sav2: 'one-off payment (no card)', hh1: 'bill increase', hh2: 'bill shortfall + savings transfer', tr1: 'booking, nothing abroad yet', tr2: 'temporary stay', tr3: 'cancelled booking' };
 const CHANNELS = new Set(['app', 'email', 'advisor']);
 const CONSENT_KEYS = ['personalization', 'transactionInsights', 'advisorInsights'];
 
@@ -127,7 +132,7 @@ async function handle(req, res) {
     if (p === '/api/healthz' && req.method === 'GET') return send(res, 200, { ok: true, uptimeSeconds: Math.round(process.uptime()) });
     if (p === '/api/personas' && req.method === 'GET') {
       return send(res, 200, {
-        customers: [...customers.values()].map((c) => ({ id: c.id, name: c.name })),
+        customers: [...customers.values()].map((c) => ({ id: c.id, name: c.name, scenario: SCENARIOS[c.id] || '' })),
         advisors: [...advisors.values()].map((a) => ({ id: a.id, name: a.name })),
       });
     }
@@ -200,12 +205,48 @@ async function handle(req, res) {
       }
       if (p === '/api/me/preferences' && req.method === 'PUT') {
         const b = await readJson(req);
-        if (!['low', 'medium', 'high', null].includes(b.riskComfort)) return send(res, 400, { error: 'invalid riskComfort' });
-        me.prefs = { ...me.prefs, riskComfort: b.riskComfort || undefined };
+        const next = { ...me.prefs };
+        if ('riskComfort' in b) {
+          if (!['low', 'medium', 'high', null].includes(b.riskComfort)) return send(res, 400, { error: 'invalid riskComfort' });
+          if (b.riskComfort) next.riskComfort = b.riskComfort; else delete next.riskComfort;
+        }
+        if ('reserve' in b) {
+          if (b.reserve !== null && !(Number.isFinite(b.reserve) && b.reserve >= 0 && b.reserve <= 1e7)) return send(res, 400, { error: 'invalid reserve' });
+          if (b.reserve !== null) next.reserve = b.reserve; else delete next.reserve;
+        }
+        me.prefs = next;
         publish(me);
-        return send(res, 200, { riskComfort: b.riskComfort });
+        return send(res, 200, { riskComfort: next.riskComfort || null, reserve: next.reserve ?? null });
       }
-      if (p === '/api/me/preferences' && req.method === 'GET') return send(res, 200, { riskComfort: (me.prefs && me.prefs.riskComfort) || null });
+      if (p === '/api/me/preferences' && req.method === 'GET') {
+        return send(res, 200, { riskComfort: (me.prefs && me.prefs.riskComfort) || null, reserve: me.prefs && me.prefs.reserve !== undefined ? me.prefs.reserve : null });
+      }
+      if (p === '/api/me/subscriptions' && req.method === 'GET') {
+        return send(res, 200, recurring(me.events, 'subscription').map((x) => ({ m: x.m, monthly: x.monthly })));
+      }
+      // SIMULATED cancellation: first call prepares the request, approve:true records the customer's
+      // confirmation so Kate watches for later charges. Nothing is ever sent to a merchant.
+      if (p === '/api/me/subscriptions/cancel' && req.method === 'POST') {
+        const b = await readJson(req);
+        const known = typeof b.merchant === 'string' && me.events.some((e) => e.m === b.merchant && String(e.cat).startsWith('subscription'));
+        if (!known) return send(res, 404, { error: 'unknown subscription' });
+        const { trackEvent, ...prepared } = simulateCancellation(me, b.merchant);
+        if (b.approve !== true) return send(res, 200, { ...prepared, approved: false });
+        me.events.push({ ...trackEvent });
+        publish(me);
+        return send(res, 200, { ...prepared, approved: true });
+      }
+      // SIMULATED own-account transfer (savings -> payment account); only moves the customer's own money.
+      if (p === '/api/me/transfer' && req.method === 'POST') {
+        const b = await readJson(req);
+        const have = Number.isFinite(me.savings) ? me.savings : 0;
+        const amt = Math.round(b.amount * 100) / 100;
+        if (!Number.isFinite(amt) || amt <= 0 || amt > have) return send(res, 400, { error: 'invalid transfer' });
+        me.savings = Math.round((have - amt) * 100) / 100;
+        me.balance = Math.round((me.balance + amt) * 100) / 100;
+        publish(me);
+        return send(res, 200, { simulated: true, balance: me.balance, savings: me.savings });
+      }
       if (p === '/api/me/dismiss' && req.method === 'POST') {
         const b = await readJson(req);
         if (typeof b.actionId !== 'string' || b.actionId.length > 40) return send(res, 400, { error: 'bad actionId' });

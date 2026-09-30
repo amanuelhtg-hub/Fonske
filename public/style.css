@@ -17,3 +17,10 @@ details { margin-top:10px; font-size:.9rem; } .guard { border-left:4px solid var
 .switch { display:flex; align-items:center; gap:10px; margin:8px 0; } .switch input { width:auto; }
 pre { background:var(--card); padding:12px; border-radius:8px; overflow:auto; }
 .clients button { margin:0 8px 8px 0; }
+
+.notice { background:var(--card); border-left:4px solid var(--brand); padding:10px 12px; border-radius:8px; }
+.panel { margin-top:12px; padding:12px; border:1px dashed var(--muted); border-radius:8px; }
+.panel .kv { display:flex; justify-content:space-between; gap:12px; padding:2px 0; }
+.panel pre { white-space:pre-wrap; margin:8px 0; } .panel button { margin:4px 4px 4px 0; }
+.sim { color:var(--warn); font-size:.85rem; font-weight:600; }
+button.ghost { background:transparent; color:var(--brand); border:1px solid var(--brand); }

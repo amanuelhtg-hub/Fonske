@@ -20,6 +20,7 @@
 
 <main id="customer" hidden>
   <nav class="tabs"><button data-ch="app" class="on">App</button><button data-ch="email">E-mail</button></nav>
+  <p id="notice" class="notice" hidden></p>
   <section id="channel"></section>
   <h3>Simulate live activity</h3>
   <div id="sim">
@@ -27,6 +28,8 @@
     <button data-cat="disruption" data-amt="-185" data-m="Airline rebooking" data-c="ES">Flight rebooking fee</button>
     <button data-cat="overdraft_fee" data-amt="-12">Overdraft fee</button>
     <button data-cat="subscription" data-amt="-12" data-m="Video Plus">New subscription charge</button>
+    <button data-cat="travel_booking" data-amt="-320" data-m="Brussels Airlines">Flight booking</button>
+    <button data-cat="booking_cancelled" data-amt="0" data-m="Brussels Airlines">Booking cancelled</button>
   </div>
   <p class="muted" id="live">Live updates: connecting…</p>
   <h3>Your investment comfort</h3>
@@ -47,5 +50,6 @@
   <pre id="benchOut"></pre>
 </main>
 <script src="/app.js"></script>
+<script src="/actions.js"></script>
 </body>
 </html>

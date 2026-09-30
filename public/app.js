@@ -18,6 +18,8 @@ async function api(path, method = 'GET', body) {
 }
 
 let channel = 'app';
+const notify = (msg) => { $('notice').textContent = msg; $('notice').hidden = !msg; };
+window.Kate = { api, el, notify, refresh: () => renderCustomer() };
 let source = null;
 
 function connectStream() {
@@ -37,7 +39,7 @@ async function loadPersonas() {
   const p = await api('/api/personas');
   const sel = $('persona');
   sel.replaceChildren();
-  for (const c of [...p.customers, ...p.advisors]) sel.append(el('option', { value: c.id, textContent: c.name }));
+  for (const c of [...p.customers, ...p.advisors]) sel.append(el('option', { value: c.id, textContent: c.scenario ? `${c.name} (${c.scenario})` : c.name }));
 }
 
 async function enter() {
@@ -76,9 +78,12 @@ async function renderCustomer() {
     for (const c of exp.cards) {
       const dismiss = el('button', { textContent: 'Not interested', className: 'ghost' });
       dismiss.onclick = async () => { await api('/api/me/dismiss', 'POST', { actionId: c.actionId }); renderCustomer(); };
-      box.append(el('div', { className: 'card' }, el('h4', { textContent: c.title }), el('p', { textContent: c.body }),
-        el('button', { textContent: c.cta }), ' ', dismiss,
-        ...(c.product ? [el('p', { className: 'muted', textContent: `Related: ${c.product.name}` })] : []), whyBlock(c)));
+      const cta = el('button', { textContent: c.cta });
+      const cardEl = el('div', { className: 'card' }, el('h4', { textContent: c.title }), el('p', { textContent: c.body }),
+        cta, ' ', dismiss,
+        ...(c.product ? [el('p', { className: 'muted', textContent: `Related: ${c.product.name}` })] : []), whyBlock(c));
+      cta.onclick = () => window.KateActions.open(c, cardEl);
+      box.append(cardEl);
     }
     for (const g of exp.guardrails) box.append(el('div', { className: 'guard muted', textContent: `Guardrail: ${g}` }));
   }
@@ -122,6 +127,7 @@ $('go').onclick = async () => {
   catch (e) { $('err').textContent = e.message; }
 };
 $('logout').onclick = async () => {
+  notify('');
   if (source) { source.close(); source = null; } await api('/api/logout', 'POST', {}); showOnly('login'); loadPersonas(); };
 $('risk').onchange = async () => { await api('/api/me/preferences', 'PUT', { riskComfort: $('risk').value || null }); };
 document.querySelectorAll('.tabs button').forEach((b) => {
