@@ -10,7 +10,7 @@ const ids = (c) => decide(c).moments.map((m) => m.id).sort();
 test('booking without foreign spending asks what the trip is', () => {
   assert.deepStrictEqual(ids(cust('tr1')), ['trip_upcoming']);
   const card = render(decide(cust('tr1')), 'app', cust('tr1')).cards[0];
-  assert.match(card.body, /holiday, a temporary stay or a move/);
+  assert.match(card.body, /holiday, a work trip, a temporary stay or a move/);
 });
 
 test('confirmed temporary stay yields the cover-duration card, not relocation', () => {
@@ -77,4 +77,61 @@ test('odd inputs: refunds, missing merchants and empty events do not misfire', (
   const x = cust('tr3');
   delete x.events.find((e) => e.cat === 'booking_cancelled').m;
   assert.ok(decide(x).moments.find((m) => m.id === 'travel_disruption').facts.booking);
+});
+
+const plus = (id, ...ev) => { const c = cust(id); c.events.push(...ev); return c; };
+const card = (c) => render(decide(c), 'app', c).cards;
+
+test('business trip: confirmed work trip gets expense help and no personal cross-sell', () => {
+  const c = cust('tr4');
+  assert.deepStrictEqual(ids(c).filter((m) => /travel|trip|stay|relocation|business/.test(m)), ['business_trip']);
+  const r = decide(c);
+  assert.strictEqual(r.decisions[0].action.kind, 'care');
+  assert.match(card(c)[0].cta, /business expense/);
+  // unconfirmed, the same bookings only trigger the question
+  c.events = c.events.filter((e) => e.cat !== 'travel_confirm');
+  assert.deepStrictEqual(ids(c).filter((m) => /trip|business/.test(m)), ['trip_upcoming']);
+});
+
+test('confidence gate: a small booking is not worth an alert', () => {
+  const c = cust('tr1');
+  c.events.forEach((e) => { if (e.cat === 'travel_booking') e.amt = -12; });
+  assert.ok(!ids(c).includes('trip_upcoming'));
+});
+
+test('long stay warns about cover caps, short stay does not', () => {
+  const long = plus('tr2', { d: 1, cat: 'travel_confirm', amt: 5, m: 'stay', c: 'PT' });
+  assert.match(card(long)[0].body, /120 consecutive days.*longer than that/);
+  assert.doesNotMatch(card(cust('tr2'))[0].body, /longer than that/);
+});
+
+test('confirmed move lists recurring home payments as a checklist item', () => {
+  const c = cust('c5');
+  c.events.push({ d: 1, cat: 'travel_confirm', amt: 0, m: 'move', c: 'DE' }, { d: 5, cat: 'utility', amt: -60, m: 'Electrabel' });
+  const m = decide(c).moments.find((x) => x.id === 'relocation');
+  assert.ok(m.facts.bills.includes('Electrabel'));
+  assert.match(card(c)[0].body, /Electrabel/);
+});
+
+test('delay: threshold wording depends on hours and never promises money', () => {
+  const short = plus('tr1', { d: 1, cat: 'flight_delay', amt: 2, m: 'Ryanair' });
+  assert.ok(!card(short)[0].body.includes('statutory'));
+  const long = plus('tr1', { d: 1, cat: 'flight_delay', amt: 4, m: 'Ryanair' }, { d: 1, cat: 'travel_pnr', amt: 0, m: 'X4J9LQ' });
+  const m = decide(long).moments.find((x) => x.id === 'travel_disruption');
+  assert.deepStrictEqual([m.facts.delayHours, m.facts.pnr, m.facts.booking], [4, 'X4J9LQ', 'Ryanair']);
+  const b = card(long)[0].body;
+  assert.match(b, /statutory claim is possible/);
+  assert.doesNotMatch(b, /you are owed|you will receive|€\d+ compensation/i);
+  assert.ok(!ids(long).includes('trip_upcoming'));
+  assert.ok(!decide(plus('tr1', { d: 1, cat: 'flight_delay', amt: 0, m: 'X' })).moments.some((x) => x.id === 'travel_disruption'));
+  assert.strictEqual(decide(plus('tr1', { d: 1, cat: 'travel_pnr', amt: 0, m: 'bad' })).moments[0].facts.pnr, null);
+});
+
+test('payout from the carrier closes the loop', () => {
+  assert.deepStrictEqual(ids(cust('tr5')).filter((m) => /claim|disruption/.test(m)), ['claim_settled']);
+  const c = plus('tr3', { d: 2, cat: 'claim_payout', amt: 400, m: 'Brussels Airlines' });
+  const moments = ids(c);
+  assert.ok(moments.includes('claim_settled') && !moments.includes('travel_disruption'));
+  assert.match(card(c)[0].title, /€400 from Brussels Airlines/);
+  assert.ok(!ids(plus('tr3', { d: 2, cat: 'claim_payout', amt: -400, m: 'X' })).includes('claim_settled'));
 });
