@@ -110,6 +110,9 @@ test('clawback: unexpected debit below the reserve offers a 1-tap transfer back'
   assert.strictEqual(m.facts.transfer.amount, 400); // reserve 1500 - balance 1100
   assert.strictEqual(m.facts.transfer.from, 'savings');
   assert.ok(m.evidence[0].includes('€450'));
+  assert.ok(m.evidence[1].includes('instant savings account'));
+  const c = cust('sav3'); const card = render(decide(c), 'app', c).cards[0];
+  assert.ok(card.body.includes('available instantly') && card.product.id === 'kbc-savings');
   assert.strictEqual(excess(cust('sav3')), undefined);
 });
 

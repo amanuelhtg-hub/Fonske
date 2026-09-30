@@ -4,7 +4,7 @@
 // to the KBC investment-profile process (objectives, risk preferences, finances, horizon).
 const { eur } = require('./util');
 
-const PRODUCTS = { low: { id: 'kbc-savings', name: 'KBC savings account' },
+const PRODUCTS = { low: { id: 'kbc-savings', name: 'KBC instant savings account' },
   medium: { id: 'kbc-balanced-fund', name: 'KBC balanced fund' },
   high: { id: 'kbc-growth-fund', name: 'KBC growth fund' } };
 
@@ -65,7 +65,7 @@ module.exports = {
       const amount = Math.min(Math.floor(s.saved), Math.ceil((s.reserve - b.balance) / 10) * 10);
       out.push({ id: 'buffer_clawback', confidence: 0.85,
         evidence: [`An unexpected payment of ${eur(s.unexpected)} in the last two weeks took your current account to ${eur(b.balance)}, below your reserve of ${eur(s.reserve)}`,
-          `${eur(s.saved)} is held in your savings, which can cover it`],
+          `${eur(s.saved)} is held in your ${PRODUCTS.low.name}, which can be moved back instantly`],
         facts: { transfer: { amount, from: 'savings', to: 'payment account' }, balance: Math.round(b.balance), reserve: Math.round(s.reserve),
           unexpected: Math.round(s.unexpected), saved: Math.round(s.saved), product: PRODUCTS.low } });
     }
@@ -109,8 +109,8 @@ module.exports = {
       id: 'buffer-clawback', kind: 'care', priority: 4,
       product: PRODUCTS.low,
       en: (f) => ({ title: `Move ${eur(f.transfer.amount)} back from savings?`,
-        body: `An unexpected payment of ${eur(f.unexpected)} took your current account to ${eur(f.balance)}, below your reserve of ${eur(f.reserve)}. You can move ${eur(f.transfer.amount)} back from your savings in one tap, to keep your account comfortably in the black. Nothing moves until you approve.`, cta: 'Move money back' }),
-      advisor: ['Unexpected debit dropped the current account below the customer\'s reserve', 'Savings can cover it: offer a 1-tap transfer back, no penalty talk', 'Ask whether the reserve target still fits'],
+        body: `An unexpected payment of ${eur(f.unexpected)} took your current account to ${eur(f.balance)}, below your reserve of ${eur(f.reserve)}. Your ${f.product.name} is available instantly, so you can move ${eur(f.transfer.amount)} back in one tap, to keep your account comfortably in the black. Nothing moves until you approve.`, cta: 'Move money back' }),
+      advisor: ['Unexpected debit dropped the current account below the customer\'s reserve', 'Instant savings account can cover it: offer a 1-tap transfer back, no penalty talk', 'Ask whether the reserve target still fits'],
     },
     excess_cash: {
       id: 'excess-cash', kind: 'commercial', priority: 2,
